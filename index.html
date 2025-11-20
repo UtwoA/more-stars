@@ -89,8 +89,8 @@
     .pkg {
       border-radius:14px; padding:12px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
       border:1px solid rgba(255,255,255,0.04);
-      display:flex; flex-direction:column; gap:8px; min-height:86px; justify-content:space-between;
-      opacity:0; animation: pkgFadeUp 400ms forwards;
+      display:flex; flex-direction:column; gap:8px; height:100px; justify-content:space-between;
+      animation: pkgFadeUp 400ms forwards;
     }
 
     .pkg > .bottom-row {
@@ -112,9 +112,16 @@
       font-size: 13px;
     }
 
-    @keyframes pkgFadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes pkgFadeUp {
+      0% { opacity: 0; transform: translateY(20px) scale(0.98); }
+      60% { opacity: 1; transform: translateY(-4px) scale(1.02); }
+      100% { transform: translateY(0) scale(1); }
+    }
 
-    .pkg .title{ font-weight:800; font-size:15px; }
+    .pkg .title{
+      font-weight:800;
+      font-size:14px;
+    }
     .pkg .price{ color:var(--muted); font-size:13px; }
 
     .pkg .badge{
@@ -128,7 +135,7 @@
       flex-direction: column;
       gap: 8px;
       align-items: center;   /* <-- центрирует содержимое по горизонтали */
-      min-height: 110px;     /* чтобы соседние карточки не растягивались */
+      min-height: 140px;     /* чтобы соседние карточки не растягивались */
     }
 
     .pkg.custom .btn {
@@ -161,7 +168,7 @@
       padding:6px 12px;
       font-size:13px;
       border-radius:8px;
-      min-width:40px;
+      min-width:60px;
       text-align:center;
       transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
     }
@@ -185,8 +192,8 @@
       position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
       width:92vw; max-width:980px; height:var(--nav-height); border-radius:28px; padding:10px 14px;
       display:flex; align-items:center; justify-content:space-between; gap:12px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
-      border: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(20px) saturate(140%);
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.05));
+      border: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(28px) saturate(180%);
       box-shadow: var(--shadow-1); z-index:140;
     }
     .nav-slot { flex:1; display:flex; justify-content:center; align-items:center; }
@@ -280,8 +287,8 @@ const popularPackages=[
   {id:'p2',title:'500 ⭐',price:'449 ₽',badge:'Popular'},
   {id:'p3',title:'1200 ⭐',price:'999 ₽',badge:'Value'},
   {id:'p4',title:'2500 ⭐',price:'1999 ₽',badge:'Top'},
-  {id:'p5',title:'TON Pack',price:'0.1 TON',badge:'Crypto'},
-  {id:'p6',title:'Premium Month',price:'299 ₽',badge:'Premium'}
+  {id:'p5',title:'TONs',price:'0.1 TON',badge:'Crypto'},
+  {id:'p6',title:'1 Month',price:'299 ₽',badge:'Premium'}
 ];
 
 const starsPackages = [
@@ -299,14 +306,14 @@ const starsPackages = [
   {id:'s2500', title:'2500 ⭐',  price:'1999 ₽', badge:'Top'},
   {id:'s5000', title:'5000 ⭐',  price:'3499 ₽', badge:'Mega'},
   {id:'s10000',title:'10000 ⭐', price:'6499 ₽', badge:'Ultra'},
-  {id:'s20000',title:'20000 ⭐', price:'12999 ₽', badge:'Legendary'}
+  {id:'s20000',title:'20000 ⭐', price:'12999 ₽', badge:'Legend'}
 ];
 
 
 const premiumPackagesData = [
   {id:'prem1', title:'1 месяц', price:'299 ₽', badge:'Premium'},
   {id:'prem3', title:'3 месяца', price:'799 ₽', badge:'Premium'},
-  {id:'prem6', title:'6 месяцев', price:'1499 ₽', badge:'Premium'}
+  {id:'prem6', title:'6 мес.', price:'1499 ₽', badge:'Premium'}
 ];
 
 // Рендер популярных пакетов
@@ -441,6 +448,8 @@ function renderGrid(gridId, packages){
       card.appendChild(input);
       card.appendChild(btn);
       card.classList.add('custom');
+
+      card.style.gridColumn = 'span 2';
 
     } else {
       // Обычные карточки
