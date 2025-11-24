@@ -28,7 +28,7 @@ jobs:
 
     - name: Check website is live
       run: |
-        STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" http://more-stars.online)
+        STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" https://more-stars.online)
         if [ "$STATUS" -ne 200 ]; then
           echo "❌ Website is not responding!"
           exit 1
