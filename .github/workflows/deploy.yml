@@ -1,27 +1,37 @@
-name: Deploy More-Stars
+name: Deploy to VPS
 
 on:
   push:
     branches:
-      - main  # деплой при пуше в main
+      - main  # ветка, при пуше в которую будет деплой
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.DEPLOY_KEY }}
 
-      - name: Add VPS to known_hosts
-        run: ssh-keyscan -H 93.123.84.87 >> ~/.ssh/known_hosts
+    - name: Deploy to server
+      run: |
+        ssh -o StrictHostKeyChecking=no deploy@your_server_ip << 'EOF'
+          cd /var/www/more-stars/more-stars-frontend
+          git pull origin main
+          sudo systemctl restart nginx
+        EOF
 
-      - name: Deploy to VPS
-        run: |
-          ssh deploy@93.123.84.87 "cd /var/www/more-stars/more-stars-frontend && git pull && sudo systemctl restart nginx"
+    - name: Check website is live
+      run: |
+        STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" http://more-stars.online)
+        if [ "$STATUS" -ne 200 ]; then
+          echo "❌ Website is not responding!"
+          exit 1
+        else
+          echo "✅ Website is live!"
+        fi
