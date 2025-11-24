@@ -20,9 +20,9 @@ jobs:
 
     - name: Deploy to server
       run: |
-        ssh -o StrictHostKeyChecking=no deploy@your_server_ip << 'EOF'
+        ssh -o StrictHostKeyChecking=no deploy@93.123.84.87 << 'EOF'
           cd /var/www/more-stars/more-stars-frontend
-          git pull origin main
+          git pull origin master
           sudo systemctl restart nginx
         EOF
 
