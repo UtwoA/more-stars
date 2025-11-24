@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:15
+    container_name: more_stars_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: more_stars_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - more_stars_net
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: more_stars_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@more-stars.online
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    networks:
+      - more_stars_net
+
+  backend:
+    build: .
+    container_name: more_stars_backend
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks:
+      - more_stars_net
+
+networks:
+  more_stars_net:
+
+volumes:
+  pgdata:

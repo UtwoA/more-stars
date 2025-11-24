@@ -1,0 +1,26 @@
+###
+
+# curl -X POST http://localhost:8000/orders/create
+#-H "Content-Type: application/json"
+#-d '{
+#  "user_id": 123456,
+#  "recipient": "@username",
+#  "item_id": "s50",
+#  "item_title": "50 ⭐",
+#  "amount_rub": 49.0,
+#  "payment_method": "cryptobot"
+#}'
+POST http://localhost:8000/orders/create
+Content-Type: application/json
+
+{
+  "user_id": 123456,
+  "recipient": "@username",
+  "item_id": "s50",
+  "item_title": "50 ⭐",
+  "amount_rub": 49.0,
+  "payment_method": "cryptobot"
+}
+
+###
+
