@@ -124,12 +124,17 @@ async def last_order_status(user_id: str = Query(...)):
             "order_id": order.order_id,
             "status": order.status,
             "product": order.product,
-            "show_success_page": False
+            "show_success_page": False,
+            "show_failure_page": False
         }
 
         if order.status == "paid" and order.success_page_shown == 0:
             result["show_success_page"] = True
-            order.success_page_shown = 1  # ставим флаг, что страница показана
+            order.success_page_shown = 1
+            db.commit()
+        elif order.status == "failed" and order.failure_page_shown == 0:
+            result["show_failure_page"] = True
+            order.failure_page_shown = 1
             db.commit()
 
         db.close()
