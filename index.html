@@ -981,6 +981,28 @@ function openFailurePage(pkg) {
   switchPage("failure-page");
 }
 
+async function initWebApp() {
+  const userId = document.getElementById("user-id").textContent;
+
+  try {
+    const res = await fetch(`/last_order_status?user_id=${userId}`);
+    const data = await res.json();
+
+    if(data.show_success_page) {
+      // Показываем страницу успешной оплаты
+      openSuccessPage({ title: data.product });
+    } else {
+      // Обычная стартовая страница
+      switchPage("products-page");
+    }
+  } catch (err) {
+    console.error("Ошибка при инициализации WebApp:", err);
+    switchPage("products-page"); // fallback
+  }
+}
+
+// Вызываем initWebApp сразу после загрузки HTML
+window.addEventListener("DOMContentLoaded", initWebApp);
 </script>
 </body>
 </html>
