@@ -769,25 +769,13 @@ function openPaymentPage(pkg) {
   currentPurchase = pkg;
 
   // Заголовок покупки
-  document.getElementById("payment-title").textContent = pkg.title[currentLang] || pkg.title['ru'];
+  document.getElementById("payment-title").textContent = pkg.title;
 
   // Сумма
-  document.getElementById("payment-amount").textContent = pkg.price
-      ? `${translations[currentLang].to_pay}: ${pkg.price}`
-      : translations[currentLang].choose_amount;
+  document.getElementById("payment-amount").textContent = `${pkg.price}`;
+
 
   switchPage("payment-page");
-}
-
-// Отдельная функция для обновления заголовка при смене языка
-function updatePaymentTitle() {
-  if (!currentPurchase) return;
-  document.getElementById("payment-title").textContent = currentPurchase.title[currentLang] || currentPurchase.title['ru'];
-  if(currentPurchase.price){
-    document.getElementById("payment-amount").textContent = `${translations[currentLang].to_pay}: ${currentPurchase.price}`;
-  } else {
-    document.getElementById("payment-amount").textContent = translations[currentLang].choose_amount;
-  }
 }
 
 // Рендер популярных пакетов
@@ -1209,7 +1197,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
     });
     renderPopular();
-    updatePaymentTitle();
   }
 
   // --- Селектор языка ---
