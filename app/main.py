@@ -59,8 +59,8 @@ async def create_order(order: OrderCreate):
         currency=order.currency,
         status="created",
         type_of_payment="crypto",
-        timestamp=datetime.datetime.utcnow(),
-        expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=1)
+        timestamp=datetime.utcnow(),  # теперь корректно
+        expires_at=datetime.utcnow() + datetime.timedelta(minutes=30)
     )
     db.add(db_order)
     db.commit()
