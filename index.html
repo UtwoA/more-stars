@@ -539,7 +539,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
 
   // Создаём заказ на бекенде
   const userId = document.getElementById("user-id").textContent;
-  const response = await fetch("create_order", {
+  const response = await fetch("/create_order", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
@@ -561,7 +561,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
     // Периодически проверяем статус оплаты
     const orderId = data.order_id;
     const interval = setInterval(async () => {
-      const statusRes = await fetch(`order_status?order_id=${orderId}`);
+      const statusRes = await fetch(`/order_status?order_id=${orderId}`);
       const statusData = await statusRes.json();
       console.log("Проверка статуса:", statusData);
 
