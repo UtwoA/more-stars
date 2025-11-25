@@ -16,3 +16,4 @@ class Order(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     success_page_shown = Column(Integer, default=0)
     failure_page_shown = Column(Integer, default=0)
+    expires_at = Column(DateTime, default=lambda: datetime.datetime.utcnow() + datetime.timedelta(minutes=30))

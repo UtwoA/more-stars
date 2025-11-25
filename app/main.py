@@ -59,7 +59,8 @@ async def create_order(order: OrderCreate):
         currency=order.currency,
         status="created",
         type_of_payment="crypto",
-        timestamp=datetime.datetime.utcnow()
+        timestamp=datetime.datetime.utcnow(),
+        expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=1)
     )
     db.add(db_order)
     db.commit()
@@ -108,12 +109,16 @@ async def crypto_webhook(request: Request):
 
 
 from fastapi import Query
+from datetime import datetime
 
 @app.get("/order_status")
 async def order_status(order_id: str = Query(...)):
     db = SessionLocal()
     order = db.query(Order).filter(Order.order_id == order_id).first()
     db.close()
+    if order.status == "created" and order.expires_at < datetime.utcnow():
+        order.status = "failed"
+        db.commit()
     if order:
         return {"order_id": order.order_id, "status": order.status}
     return {"error": "Order not found"}
