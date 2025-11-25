@@ -1,7 +1,6 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime
+from sqlalchemy import Column, String, Integer, Float, DateTime, func
 from .database import Base
-from datetime import datetime, timedelta
-
+from datetime import timedelta
 import datetime
 
 class Order(Base):
@@ -15,7 +14,7 @@ class Order(Base):
     currency = Column(String)
     status = Column(String)
     type_of_payment = Column(String)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=func.now())
     success_page_shown = Column(Integer, default=0)
     failure_page_shown = Column(Integer, default=0)
-    expires_at = Column(DateTime, default=lambda: datetime.utcnow() + timedelta(minutes=30))
+    expires_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.utcnow() + timedelta(minutes=30))
