@@ -44,11 +44,7 @@ async def create_order(order: OrderCreate):
     return {"order_id": order_id, "amount_rub": amount_rub}
 
 @app.post("/webhook/crypto")
-async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Header(...)):
-    body = await request.body()
-    computed_signature = hmac.new(CRYPTOBOT_TOKEN, body, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(computed_signature, crypto_pay_api_signature):
-        raise HTTPException(status_code=403, detail="Invalid signature")
+async def crypto_webhook(request: Request):
 
     data = await request.json()
     db = SessionLocal()
