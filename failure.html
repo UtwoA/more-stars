@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Оплата не прошла</title>
+  <style>
+    :root{
+      --bg-1: #0e0f12;
+      --bg-2: #131518;
+      --card: rgba(255,255,255,0.04);
+      --card-strong: rgba(255,255,255,0.06);
+      --glass-weak: rgba(255,255,255,0.06);
+      --glass-strong: rgba(255,255,255,0.12);
+      --text: #e9eef7;
+      --muted: rgba(233,238,247,0.52);
+      --accentA: #2a8bf2;
+      --accentB: #8b5cff;
+      --accentGrad: linear-gradient(135deg,var(--accentA),var(--accentB));
+      --shadow-1: 0 8px 30px rgba(0,0,0,0.5);
+      --nav-height: 84px;
+      --radius-lg: 20px;
+      --radius-md: 12px;
+      --transition: 280ms cubic-bezier(.2,.9,.3,1);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:
+        radial-gradient(1200px 600px at 10% 10%, rgba(42,139,242,0.06), transparent 6%),
+        radial-gradient(900px 400px at 90% 90%, rgba(139,92,255,0.04), transparent 6%),
+        var(--bg-1);
+      color:var(--text);
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      display:flex;
+      flex-direction:column;
+      min-height:100vh;
+      -webkit-tap-highlight-color: transparent;
+      overflow-x:hidden;
+    }
+
+    .container { padding:18px; padding-bottom: calc(var(--nav-height) + 36px); width:100%; max-width:980px; margin:0 auto; flex:1; }
+    .page{ display:none; animation: fadeUp .32s var(--transition) both; }
+    .page.active{ display:block; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+    .logo { display:block; width: 72vw; max-width: 420px; margin: 2.5vh auto 2vh; transform-origin:center; transition: transform 420ms cubic-bezier(.2,.9,.3,1); }
+    .logo:active { transform: scale(.995); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: var(--radius-lg);
+      padding:14px;
+      margin-bottom:14px;
+      backdrop-filter: blur(12px) saturate(130%);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+
+    .actions { display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+    .btn {
+      display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      width:100%; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,0.04);
+      font-weight:700; font-size:15px; color: #fff;
+      background: var(--accentGrad);
+      box-shadow: 0 8px 28px rgba(42,139,242,0.08);
+      transition: transform var(--transition), box-shadow var(--transition);
+      cursor:pointer;
+    }
+    .btn:active{ transform: translateY(2px) scale(.995); box-shadow:0 6px 20px rgba(0,0,0,0.5); }
+    .btn.secondary{
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      color:var(--text);
+      border:1px solid rgba(255,255,255,0.06);
+      box-shadow:none;
+    }
+
+    .popular {
+      display:grid;
+      grid-template-columns: repeat(2,1fr);
+      gap:12px;
+      align-items: start; /* вот это важно */
+    }
+
+    .pkg {
+      border-radius:14px; padding:12px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border:1px solid rgba(255,255,255,0.04);
+      display:flex; flex-direction:column; gap:8px; height:100px; justify-content:space-between;
+      animation: pkgFadeUp 400ms forwards;
+    }
+
+    .pkg > .bottom-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: nowrap;       /* не переносить элементы */
+      gap: 8px;
+    }
+
+    .pkg .price {
+      white-space: nowrap;     /* чтобы "₽" не переносился */
+    }
+
+    .pkg .btn {
+      flex: 0 0 auto;    /* не сжимается и не растягивается */
+      max-width: 50%;    /* ограничение ширины, чтобы не вылазила */
+      padding: 6px 10px; /* можно чуть уменьшить */
+      font-size: 13px;
+    }
+
+    @keyframes pkgFadeUp {
+      0% { opacity: 0; transform: translateY(20px) scale(0.98); }
+      60% { opacity: 1; transform: translateY(-4px) scale(1.02); }
+      100% { transform: translateY(0) scale(1); }
+    }
+
+    .pkg .title{
+      font-weight:800;
+      font-size:14px;
+    }
+    .pkg .price{ color:var(--muted); font-size:13px; }
+
+    .pkg .badge{
+      display:inline-flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px;
+      font-weight:700; font-size:13px; color:#fff;
+      background: linear-gradient(90deg, rgba(42,139,242,0.98), rgba(139,92,255,0.96));
+      width:max-content;
+    }
+    .pkg.custom {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;   /* <-- центрирует содержимое по горизонтали */
+      min-height: 140px;     /* чтобы соседние карточки не растягивались */
+    }
+
+    .pkg.custom .btn {
+      margin-top: 6px;       /* немного пространства сверху */
+      flex: 0 0 auto;        /* не растягивается */
+      max-width: 80%;        /* ограничение ширины */
+      text-align: center;
+    }
+
+
+    .qty {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      color: var(--text);
+      font-weight:700;
+      font-size:15px;
+      text-align:center;
+      outline:none;
+      transition: box-shadow 180ms ease, transform 180ms ease;
+    }
+    .qty:focus {
+      box-shadow:0 6px 16px rgba(42,139,242,0.2);
+      transform:translateY(-2px);
+    }
+
+    .pkg .btn {
+      padding:6px 12px;
+      font-size:13px;
+      border-radius:8px;
+      min-width:60px;
+      text-align:center;
+      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+    .pkg .btn:hover{
+      transform: translateY(-2px);
+      box-shadow:0 6px 16px rgba(42,139,242,0.2);
+      background: linear-gradient(135deg, #2a8bf2, #8b5cff);
+    }
+
+    .profile-row{ display:flex; gap:12px; align-items:center; }
+    .avatar{ width:80px; height:80px; border-radius:20px; object-fit:cover; border:1px solid rgba(255,255,255,0.06); background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:2px; }
+    .meta { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .label { color:var(--muted); font-size:13px; }
+    .value { font-weight:700; font-size:15px; color:var(--text); }
+    .select { background: rgba(0,0,0,0.06); border:none; color:var(--text); padding:8px 10px; border-radius:10px; }
+
+    .skeleton { border-radius:10px; background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.08), rgba(255,255,255,0.03)); background-size:200% 100%; animation: shimmer 1.4s linear infinite; }
+    @keyframes shimmer{ 0%{ background-position:200% 0 } 100%{ background-position:-200% 0 } }
+
+    .bottom-nav {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%) translateZ(0); /* форсируем GPU слой */
+      bottom: 18px;
+      width: 92vw;
+      max-width: 980px;
+      height: var(--nav-height);
+      border-radius: 28px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+
+      /* фон с большей непрозрачностью для корректного blur на iOS */
+      background: rgba(30,30,30,0.3);
+      /* для поддержки градиента и прозрачности */
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.08));
+
+      border: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(60px) saturate(150%);
+      -webkit-backdrop-filter: blur(60px) saturate(150%); /* для Safari на iOS */
+
+      box-shadow: var(--shadow-1);
+      z-index: 140;
+      will-change: transform, backdrop-filter; /* оптимизация рендеринга на мобильных */
+    }
+
+    .nav-slot { flex:1; display:flex; justify-content:center; align-items:center; }
+    .nav-item { display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; color:var(--muted); border-radius:16px; padding:6px 8px; transition: all 260ms cubic-bezier(.2,.9,.3,1); transform: translateY(0); user-select:none; }
+    .nav-item .ico { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; transition: all 260ms; background: transparent; color:var(--text); }
+    .nav-item.active { color:var(--text); transform:translateY(-6px); }
+    .nav-item.active .ico { background: linear-gradient(135deg, rgba(42,139,242,0.16), rgba(139,92,255,0.12)); box-shadow:0 10px 28px rgba(42,139,242,0.06), inset 0 0 10px rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); transform:scale(1.04); }
+    .nav-item .label { font-size:12px; color:var(--muted); }
+    .nav-center { transform: translateY(-4px); }
+
+    @keyframes walletPulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.03); opacity: 0.85; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .wallet-connecting {
+      animation: walletPulse 0.8s ease-in-out infinite;
+}
+  </style>
+</head>
+<body>
+
+  <section id="failure-page" class="page" style="display:block;">
+    <div class="card" style="text-align:center;padding:22px">
+
+      <div id="failure-title" style="font-weight:800;font-size:18px;margin-bottom:10px;color:#ff4d4f;">
+        Оплата не прошла
+      </div>
+
+      <div id="failure-desc" style="font-size:15px;color:var(--muted);margin-bottom:22px">
+        К сожалению, оплата не была завершена. Попробуйте ещё раз.
+      </div>
+
+      <div class="actions">
+        <button class="btn" onclick="window.location='payment.html'">Попробовать снова</button>
+        <button class="btn secondary" onclick="window.location='index.html'">Вернуться в магазин</button>
+      </div>
+    </div>
+
+    <img src="paymentFailure.gif"
+         alt="Payment Failed"
+         style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
+  </section>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const title = params.get('title');
+    if(title){
+      document.getElementById('failure-desc').textContent =
+        `Не удалось оплатить: ${title}. Попробуйте другой способ оплаты.`;
+    }
+  </script>
+
+</body>
+</html>

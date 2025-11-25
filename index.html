@@ -1052,96 +1052,26 @@ function proceedToPayment(recipient) {
   openPaymentPage(currentPurchase);
 }
 
-// Открытие страницы удачной оплаты
+// Вызывается при успешной покупке
 function openSuccessPage(pkg) {
-  document.getElementById("success-desc").textContent =
-    `Вы приобрели: ${pkg.title}`;
-
-  switchPage("success-page");
-  launchConfetti();
+  if(!pkg || !pkg.title) {
+    // Если пакета нет — просто редирект без названия
+    window.location.href = '/success.html';
+    return;
+  }
+  // Кодируем название пакета для URL
+  const pkgTitle = encodeURIComponent(pkg.title);
+  window.location.href = `/success.html?title=${pkgTitle}`;
 }
 
-// Анимация конфетти при удачной оплате
-function launchConfetti() {
-  const canvas = document.getElementById("confetti-canvas");
-  const ctx = canvas.getContext("2d");
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-
-  const confettiCount = 100;
-  const confetti = [];
-
-  for (let i = 0; i < confettiCount; i++) {
-    confetti.push({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height - canvas.height,
-      r: Math.random() * 6 + 4,
-      d: Math.random() * confettiCount,
-      color: `hsl(${Math.random() * 360}, 70%, 60%)`,
-      tilt: Math.random() * 10 - 10,
-      tiltAngleIncremental: Math.random() * 0.07 + 0.05,
-      tiltAngle: 0
-    });
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    confetti.forEach((c) => {
-      ctx.beginPath();
-      ctx.lineWidth = c.r / 2;
-      ctx.strokeStyle = c.color;
-      ctx.moveTo(c.x + c.tilt + c.r / 4, c.y);
-      ctx.lineTo(c.x + c.tilt, c.y + c.tilt + c.r / 4);
-      ctx.stroke();
-    });
-    update();
-  }
-
-  function update() {
-    confetti.forEach((c, i) => {
-      c.tiltAngle += c.tiltAngleIncremental;
-      c.y += (Math.cos(c.d) + 3 + c.r / 2) / 2;
-      c.x += Math.sin(c.d);
-      c.tilt = Math.sin(c.tiltAngle) * 15;
-
-      if (c.y > canvas.height) {
-        confetti[i] = {
-          x: Math.random() * canvas.width,
-          y: -10,
-          r: c.r,
-          d: c.d,
-          color: c.color,
-          tilt: c.tilt,
-          tiltAngleIncremental: c.tiltAngleIncremental,
-          tiltAngle: 0
-        };
-      }
-    });
-  }
-
-  let anim;
-  function render() {
-    draw();
-    anim = requestAnimationFrame(render);
-  }
-
-  render();
-
-  // Остановить конфетти через 5 секунд
-  setTimeout(() => cancelAnimationFrame(anim), 300000);
-}
-
-// Открытие страницы после неудачной оплаты
+// Вызывается при ошибке оплаты
 function openFailurePage(pkg) {
-  if(pkg){
-    document.getElementById("failure-desc").textContent =
-      `Не удалось оплатить: ${pkg.title}. Попробуйте другой способ оплаты.`;
+  if(pkg && pkg.title){
+    const pkgTitle = encodeURIComponent(pkg.title);
+    window.location.href = `/failure.html?title=${pkgTitle}`;
   } else {
-    document.getElementById("failure-desc").textContent =
-      "К сожалению, оплата не была завершена. Попробуйте ещё раз.";
+    window.location.href = `/failure.html`;
   }
-
-  switchPage("failure-page");
 }
 
 localStorage.setItem('lang', 'ru');
