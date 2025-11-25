@@ -1055,131 +1055,151 @@ async function initWebApp() {
   }
 }
 // Вызываем initWebApp сразу после загрузки HTML
-window.addEventListener("DOMContentLoaded", initWebApp);
+window.addEventListener("DOMContentLoaded", async () => {
 
+  // --- Инициализация WebApp ---
+  const userId = document.getElementById("user-id").textContent;
+  try {
+    const res = await fetch(`/last_order_status?user_id=${userId}`);
+    const data = await res.json();
 
-function setLanguage(lang) {
-  document.querySelectorAll('[data-i18n]').forEach(el => {
-    const key = el.getAttribute('data-i18n');
-    if (translations[lang] && translations[lang][key]) {
-      el.textContent = translations[lang][key];
+    if (data.show_success_page) {
+      openSuccessPage({title: data.product});
+    } else if (data.show_failure_page) {
+      openFailurePage({title: data.product});
+    } else {
+      switchPage("shop");
     }
-  });
-}
-
-const langSelect = document.getElementById('lang-select');
-langSelect.addEventListener('change', () => {
-  const lang = langSelect.value;
-  setLanguage(lang);
-  localStorage.setItem('lang', lang);
-});
-
-// При загрузке страницы
-const savedLang = localStorage.getItem('lang') || 'ru';
-langSelect.value = savedLang;
-setLanguage(savedLang);
-
-
-const translations = {
-  ru: {
-    // History
-    last_purchases: "Последние покупки",
-    history_empty: "Здесь будет история операций",
-
-    // Profile
-    username: "Имя пользователя",
-    id: "ID",
-    language: "Язык",
-    referral_system: "Реферальная система",
-    your_link: "Ваша ссылка",
-    invited: "Приглашено",
-    wallet: "Кошелек",
-    status: "Статус",
-    not_connected: "Не подключён",
-    balance: "Баланс",
-    connect_wallet: "Подключить кошелек",
-    contact_us: "Связаться с нами",
-    support: "Поддержка",
-
-    // Shop
-    buy_stars: "Купить Stars",
-    telegram_premium: "Telegram Premium",
-    popular_packages: "Популярные пакеты",
-    players_choice: "Выбор игроков",
-
-    // Recipient
-    send_to: "Кому отправить?",
-    to_self: "Себе",
-    to_friend: "Другу",
-    enter_friend_username: "Введите @username друга",
-    next: "Далее",
-
-    // Payment
-    purchase: "Покупка",
-    pay_wallet: "Оплатить через Wallet",
-    crypto_bot: "CryptoBot",
-    sbp: "СБП (Российские банки)",
-
-    // Success
-    payment_successful: "Оплата прошла успешно! 🎉",
-    thank_you: "Спасибо за покупку.",
-    back_to_shop: "Вернуться в магазин",
-
-    // Failure
-    payment_failed: "Оплата не прошла",
-    payment_failed_desc: "К сожалению, оплата не была завершена. Попробуйте ещё раз.",
-    retry: "Попробовать снова"
-  },
-  en: {
-    // History
-    last_purchases: "Last purchases",
-    history_empty: "History will appear here",
-
-    // Profile
-    username: "Username",
-    id: "ID",
-    language: "Language",
-    referral_system: "Referral system",
-    your_link: "Your link",
-    invited: "Invited",
-    wallet: "Wallet",
-    status: "Status",
-    not_connected: "Not connected",
-    balance: "Balance",
-    connect_wallet: "Connect wallet",
-    contact_us: "Contact us",
-    support: "Support",
-
-    // Shop
-    buy_stars: "Buy Stars",
-    telegram_premium: "Telegram Premium",
-    popular_packages: "Popular packages",
-    players_choice: "Players' choice",
-
-    // Recipient
-    send_to: "Send to?",
-    to_self: "Self",
-    to_friend: "Friend",
-    enter_friend_username: "Enter friend's @username",
-    next: "Next",
-
-    // Payment
-    purchase: "Purchase",
-    pay_wallet: "Pay with Wallet",
-    crypto_bot: "CryptoBot",
-    sbp: "SBP (Russian banks)",
-
-    // Success
-    payment_successful: "Payment successful! 🎉",
-    thank_you: "Thank you for your purchase.",
-    back_to_shop: "Back to shop",
-
-    // Failure
-    payment_failed: "Payment failed",
-    payment_failed_desc: "Unfortunately, payment was not completed. Try again.",
-    retry: "Try again"
+  } catch (err) {
+    console.error("Ошибка при инициализации WebApp:", err);
+    switchPage("shop");
   }
-};
+
+  const translations = {
+    ru: {
+      // History
+      last_purchases: "Последние покупки",
+      history_empty: "Здесь будет история операций",
+
+      // Profile
+      username: "Имя пользователя",
+      id: "ID",
+      language: "Язык",
+      referral_system: "Реферальная система",
+      your_link: "Ваша ссылка",
+      invited: "Приглашено",
+      wallet: "Кошелек",
+      status: "Статус",
+      not_connected: "Не подключён",
+      balance: "Баланс",
+      connect_wallet: "Подключить кошелек",
+      contact_us: "Связаться с нами",
+      support: "Поддержка",
+
+      // Shop
+      buy_stars: "Купить Stars",
+      telegram_premium: "Telegram Premium",
+      popular_packages: "Популярные пакеты",
+      players_choice: "Выбор игроков",
+
+      // Recipient
+      send_to: "Кому отправить?",
+      to_self: "Себе",
+      to_friend: "Другу",
+      enter_friend_username: "Введите @username друга",
+      next: "Далее",
+
+      // Payment
+      purchase: "Покупка",
+      pay_wallet: "Оплатить через Wallet",
+      crypto_bot: "CryptoBot",
+      sbp: "СБП (Российские банки)",
+
+      // Success
+      payment_successful: "Оплата прошла успешно! 🎉",
+      thank_you: "Спасибо за покупку.",
+      back_to_shop: "Вернуться в магазин",
+
+      // Failure
+      payment_failed: "Оплата не прошла",
+      payment_failed_desc: "К сожалению, оплата не была завершена. Попробуйте ещё раз.",
+      retry: "Попробовать снова"
+    },
+    en: {
+      // History
+      last_purchases: "Last purchases",
+      history_empty: "History will appear here",
+
+      // Profile
+      username: "Username",
+      id: "ID",
+      language: "Language",
+      referral_system: "Referral system",
+      your_link: "Your link",
+      invited: "Invited",
+      wallet: "Wallet",
+      status: "Status",
+      not_connected: "Not connected",
+      balance: "Balance",
+      connect_wallet: "Connect wallet",
+      contact_us: "Contact us",
+      support: "Support",
+
+      // Shop
+      buy_stars: "Buy Stars",
+      telegram_premium: "Telegram Premium",
+      popular_packages: "Popular packages",
+      players_choice: "Players' choice",
+
+      // Recipient
+      send_to: "Send to?",
+      to_self: "Self",
+      to_friend: "Friend",
+      enter_friend_username: "Enter friend's @username",
+      next: "Next",
+
+      // Payment
+      purchase: "Purchase",
+      pay_wallet: "Pay with Wallet",
+      crypto_bot: "CryptoBot",
+      sbp: "SBP (Russian banks)",
+
+      // Success
+      payment_successful: "Payment successful! 🎉",
+      thank_you: "Thank you for your purchase.",
+      back_to_shop: "Back to shop",
+
+      // Failure
+      payment_failed: "Payment failed",
+      payment_failed_desc: "Unfortunately, payment was not completed. Try again.",
+      retry: "Try again"
+    }
+  };
+
+  function setLanguage(lang) {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (translations[lang] && translations[lang][key]) {
+        el.textContent = translations[lang][key];
+      }
+    });
+  }
+
+  // --- Селектор языка ---
+  const langSelect = document.getElementById('lang-select');
+  langSelect.addEventListener('change', () => {
+    const lang = langSelect.value;
+    setLanguage(lang);
+    localStorage.setItem('lang', lang);
+  });
+
+  const savedLang = localStorage.getItem('lang') || 'ru';
+  langSelect.value = savedLang;
+  setLanguage(savedLang);
+
+
+
+});
 
 
 </script>
