@@ -539,6 +539,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
 
   // Создаём заказ на бекенде
   const userId = document.getElementById("user-id").textContent;
+  const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
   const response = await fetch("/create_order", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
@@ -546,7 +547,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
       user_id: userId,
       recipient: currentPurchase.recipient || "self",
       product: currentPurchase.title,
-      amount: currentPurchase.price,
+      amount: amountValue,
       currency: "USDT" // или другая валюта
     })
   });
