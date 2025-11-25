@@ -555,9 +555,9 @@ document.getElementById("pay-cryptobot").onclick = async () => {
   const data = await response.json();
   console.log("Создан заказ:", data);
 
-  if(data.crypto_invoice && data.crypto_invoice.result && data.crypto_invoice.result.pay_url){
+  if(data.crypto_invoice && data.crypto_invoice.result && data.crypto_invoice.result.mini_app_invoice_url){
     // Открываем ссылку на оплату в Telegram
-    window.Telegram.WebApp.openLink(data.crypto_invoice.result.pay_url);
+    window.Telegram.WebApp.openLink(data.crypto_invoice.result.mini_app_invoice_url);
 
     // Периодически проверяем статус оплаты
     const orderId = data.order_id;
