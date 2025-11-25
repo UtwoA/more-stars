@@ -441,7 +441,7 @@ const popularPackages=[
 
 // Карточки товаров на странице Stars
 const starsPackages = [
-  {id:'custom', title:'Свой ⭐', custom:true},
+  {id:'custom', title:'Custom ⭐', custom:true},
   {id:'s50',   title:'50 ⭐',    price:'5 ₽',   badge:'New'},
   {id:'s100',  title:'100 ⭐',   price:'99 ₽',   badge:'Best'},
   {id:'s200',  title:'200 ⭐',   price:'179 ₽',  badge:'Popular'},
@@ -693,7 +693,7 @@ function renderPopular(){
     ]);
     const bottom=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
       el('div',{class:'price',text:pkg.price}),
-      el('button',{class:'btn',text:'Купить'})
+      el('button',{class:'btn',text:'buy','data-i18n':'buy'})
     ]);
     bottom.querySelector('button').addEventListener('click',()=>openRecipientPage(pkg));
     card.appendChild(top);
@@ -702,6 +702,7 @@ function renderPopular(){
     card.style.animationDelay = `${i*80}ms`;
     grid.appendChild(card);
   });
+  setLanguage(localStorage.getItem('en') || 'en');
 }
 (function preloadPopular(){
   const grid=document.getElementById('popular-grid');
@@ -838,7 +839,7 @@ function renderGrid(gridId, packages){
         min: 50,
         max: 20000
       });
-      const btn = el('button', { class: 'btn', text: 'Купить' });
+      const btn = el('button', { class: 'btn', text: 'buy' });
 
       // Центрирование кнопки
       btn.style.alignSelf = 'center';
@@ -879,7 +880,7 @@ function renderGrid(gridId, packages){
 
       const bottom = el('div', { class: 'bottom-row' }, [
         el('div', { class: 'price', text: pkg.price }),
-        el('button', { class: 'btn', text: 'Купить' })
+        el('button', { class: 'btn', text: 'buy' })
       ]);
 
       // Добавляем обработчик кнопки
@@ -1139,7 +1140,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       // Failure
       payment_failed: "Оплата не прошла",
       payment_failed_desc: "К сожалению, оплата не была завершена. Попробуйте ещё раз.",
-      retry: "Попробовать снова"
+      retry: "Попробовать снова",
+
+      // Карточки
+      buy: "buy"
     },
     en: {
       // History
@@ -1188,7 +1192,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       // Failure
       payment_failed: "Payment failed",
       payment_failed_desc: "Unfortunately, payment was not completed. Try again.",
-      retry: "Try again"
+      retry: "Try again",
+
+      // Карточки
+      buy: "Buy"
     }
   };
 
