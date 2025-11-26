@@ -213,10 +213,6 @@ def check_order_expired(order, db):
         db.commit()
     return order
 
-
-
-
-
 @app.post("/create_order_sbp")
 async def create_order_sbp(order: OrderCreate):
     db = SessionLocal()
@@ -248,12 +244,8 @@ async def create_order_sbp(order: OrderCreate):
         method="sbp"
     )
 
-    db.close()
-
-    return {
-        "order_id": order_id,
-        "payment": payment  # тут будет URL и QR
-    }
+    # Возвращаем URL для внешнего открытия
+    return {"order_id": order_id, "pay_url": payment["response"]["url"]}
 
 from fastapi import Form
 
