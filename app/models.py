@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, func
-from .database import Base
 from datetime import timedelta
-import datetime
+
+from sqlalchemy import Column, String, Integer, Float, DateTime
+from .database import Base
+from .main import now_msk
+
 
 class Order(Base):
     __tablename__ = "orders"
@@ -14,7 +16,7 @@ class Order(Base):
     currency = Column(String)
     status = Column(String)
     type_of_payment = Column(String)
-    timestamp = Column(DateTime(timezone=True), default=func.now())
+    timestamp = Column(DateTime(timezone=True), default=now_msk)
     success_page_shown = Column(Integer, default=0)
     failure_page_shown = Column(Integer, default=0)
-    expires_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.utcnow() + timedelta(minutes=30))
+    expires_at = Column(DateTime(timezone=True), default=lambda: now_msk() + timedelta(minutes=10))

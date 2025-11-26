@@ -9,8 +9,12 @@ from bot import send_user_message
 from .database import SessionLocal, Base, engine
 from .models import Order
 from .crypto import convert_to_rub
-from datetime import datetime, timedelta
+from datetime import timedelta
 from cactuspay import cactuspay_create_payment, cactuspay_get_status
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+MSK = ZoneInfo("Europe/Moscow")
 
 load_dotenv()
 CRYPTOBOT_TOKEN = os.getenv("CRYPTOBOT_TOKEN")  # твой testnet токен
@@ -61,9 +65,10 @@ async def create_order(order: OrderCreate):
         currency=order.currency,
         status="created",
         type_of_payment="crypto",
-        timestamp=datetime.utcnow(),  # теперь корректно
-        expires_at=datetime.utcnow() + timedelta(minutes=1)
+        timestamp=now_msk(),
+        expires_at=now_msk() + timedelta(minutes=10)
     )
+
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
@@ -189,7 +194,7 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
             "amount_rub": o.amount_rub,
             "currency": o.currency,
             "status": o.status,
-            "timestamp": o.timestamp.isoformat()
+            "timestamp": o.timestamp.astimezone(MSK).isoformat()  # всегда МСК
         }
         for o in orders
     ]
@@ -197,10 +202,17 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
     return {"orders": result}
 
 
+from datetime import datetime, timezone
+
 def check_order_expired(order, db):
-    if order.status == "created" and order.expires_at < datetime.utcnow():
+    now = now_msk()
+    if order.status == "created" and order.expires_at < now:
         order.status = "failed"
         db.commit()
+    return order
+
+
+
 
 
 @app.post("/create_order_sbp")
@@ -214,13 +226,14 @@ async def create_order_sbp(order: OrderCreate):
         user_id=order.user_id,
         recipient=order.recipient,
         product=order.product,
-        amount_rub=order.amount,  # CactusPay работает в рублях
+        amount_rub=order.amount,
         currency="RUB",
         status="created",
         type_of_payment="cactuspay_sbp",
-        timestamp=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(minutes=10)
+        timestamp=now_msk(),
+        expires_at=now_msk() + timedelta(minutes=10)
     )
+
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
@@ -276,3 +289,7 @@ async def cactuspay_webhook(
     db.close()
     return {"status": "ok"}
 
+
+
+def now_msk():
+    return datetime.now(MSK)
