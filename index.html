@@ -706,25 +706,22 @@ document.getElementById("pay-sbp").onclick = async () => {
   console.log("Создан заказ:", data);
 
   if(data.payment?.response?.url){
-    window.location.href = data.payment.response.url;
+    const newWindow = window.open(data.payment.response.url, "_blank");
 
     const orderId = data.order_id;
     const interval = setInterval(async () => {
       const s = await fetch(`/order_status?order_id=${orderId}`);
       const sd = await s.json();
 
-      if(sd.status === "paid"){
+      if(sd.status === "paid" || sd.status === "failed"){
         clearInterval(interval);
-        openSuccessPage(currentPurchase);
-      }
-      if(sd.status === "failed"){
-        clearInterval(interval);
-        openFailurePage(currentPurchase);
+        if(sd.status === "paid") openSuccessPage(currentPurchase);
+        if(sd.status === "failed") openFailurePage(currentPurchase);
       }
     }, 5000);
 
   } else {
-    alert("Ошибка при создании платежа");
+      alert("Ошибка при создании платежа");
   }
 };
 
