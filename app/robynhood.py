@@ -4,7 +4,9 @@ import logging
 import httpx
 from dotenv import load_dotenv
 
+from .models import Order
 from .database import SessionLocal
+
 
 load_dotenv()
 
