@@ -112,6 +112,7 @@ async def crypto_webhook(request: Request):
                     product_name=order.product
                 )
             )
+            asyncio.create_task(send_purchase_to_robynhood(order))
     db.close()
     return {"status": "ok"}
 
@@ -279,6 +280,111 @@ async def cactuspay_webhook(
                 product_name=order.product
             )
         )
+        asyncio.create_task(send_purchase_to_robynhood(order))
+    db.close()
+    return {"status": "ok"}
+
+
+import os
+import uuid
+import logging
+from dotenv import load_dotenv
+import httpx
+from sqlalchemy.orm import Session
+
+from .database import SessionLocal
+from .models import Order
+from bot import send_user_message
+
+# --- Инициализация .env ---
+load_dotenv()
+ROBYNHOOD_API_URL = os.getenv("ROBYNHOOD_TEST_API_URL", "https://robynhood.parssms.info/api/test/purchase")
+API_TOKEN = os.getenv("ROBYNHOOD_TEST_API_TOKEN")
+
+# --- Логгирование ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("robynhood_purchase")
+
+# --- Функция отправки заказа на Robynhood ---
+async def send_purchase_to_robynhood(order: Order):
+    """
+    Отправляет заказ на Robynhood после успешной оплаты.
+    """
+    idempotency_key = str(uuid.uuid4())
+
+    payload = {
+        "product_type": order.product,
+        "recipient": order.recipient,
+        "idempotency_key": idempotency_key
+    }
+
+    # Динамическое добавление параметров покупки
+    if order.product == "stars":
+        payload["quantity"] = 50
+    elif order.product == "premium":
+        payload["months"] = 3
+    elif order.product == "ads":
+        payload["amount"] = 1
+
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    logger.info(f"Sending Robynhood purchase for order {order.order_id}: {payload}")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(ROBYNHOOD_API_URL, json=payload, headers=headers, timeout=15)
+        result = response.json()
+        logger.info(f"Robynhood response for order {order.order_id}: {result}")
+
+    # Сохраняем idempotency_key для отслеживания через вебхук
+    db: Session = SessionLocal()
+    db_order = db.query(Order).filter(Order.order_id == order.order_id).first()
+    if db_order:
+        db_order.idempotency_key = idempotency_key
+        db.commit()
+    db.close()
+
+    return result
+
+# --- Вебхук Robynhood ---
+from fastapi import FastAPI, Request, HTTPException
+
+app = FastAPI()
+
+@app.post("/webhook/robynhood_purchase")
+async def robynhood_webhook(request: Request):
+    data = await request.json()
+    key = data.get("idempotency_key")
+    status = data.get("status")
+
+    logger.info(f"Robynhood webhook received: {data}")
+
+    if not key:
+        logger.error("Webhook missing idempotency_key")
+        raise HTTPException(status_code=400, detail="No idempotency_key provided")
+
+    if status not in ("paid", "failed", "pending"):
+        logger.error(f"Unexpected status in webhook: {status}")
+        raise HTTPException(status_code=400, detail=f"Unexpected status: {status}")
+
+    db: Session = SessionLocal()
+    order = db.query(Order).filter(Order.idempotency_key == key).first()
+    if not order:
+        db.close()
+        logger.error(f"Order not found for idempotency_key: {key}")
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order.status = status
+    db.commit()
+    db.refresh(order)
+    logger.info(f"Order {order.order_id} status updated to {status}")
+
+    # Уведомляем пользователя только при успешной покупке
+    if status == "paid":
+        await send_user_message(chat_id=int(order.user_id), product_name=order.product)
+        logger.info(f"User {order.user_id} notified for order {order.order_id}")
 
     db.close()
     return {"status": "ok"}
