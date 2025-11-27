@@ -235,12 +235,40 @@
     .wallet-connecting {
       animation: walletPulse 0.8s ease-in-out infinite;
 }
+
+    .page {
+  display: none;
+    }
+
+  .page.active {
+    display: block;
+  }
+
   </style>
 </head>
 <body>
-<main class="container">
 
-  <section id="history" class="page">
+<div id="auth-gate" style="display:none; padding:18px;">
+  <div class="card" style="text-align:center; margin-top:20vh;">
+    <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+    <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+      Вход через Telegram
+    </div>
+    <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      Откройте приложение в Telegram, чтобы продолжить
+    </div>
+
+    <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+      Открыть в Telegram
+    </a>
+  </div>
+</div>
+
+<div id="app-content">
+  <main class="container">
+
+    <section id="history" class="page">
+  <div class="page-content">
     <div id="history-loader">
       <div class="card skeleton" style="height:64px"></div>
       <div class="card skeleton" style="height:64px"></div>
@@ -250,9 +278,26 @@
       <div style="margin-top:8px;color:var(--muted)" data-i18n="history_empty">Здесь будет история операций</div>
     </div>
     <div id="history-list"></div>
-  </section>
+  </div>
 
-  <section id="profile" class="page">
+  <div class="auth-gate-inline" style="display:none;">
+    <div class="card" style="text-align:center; margin-top:20vh;">
+      <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+      <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+        Вход через Telegram
+      </div>
+      <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+        Откройте приложение в Telegram, чтобы продолжить
+      </div>
+      <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+        Открыть в Telegram
+      </a>
+    </div>
+  </div>
+</section>
+
+    <section id="profile" class="page">
+  <div class="page-content">
     <div class="card profile-row">
       <img id="user-avatar" class="avatar skeleton" alt="avatar" src="" />
       <div class="meta">
@@ -289,137 +334,152 @@
         Поддержка
       </button>
     </div>
+  </div>
 
-  </section>
-
-  <section id="shop" class="page active">
-    <img src="icon-1.png" alt="More Stars" class="logo" />
-    <div class="card actions" role="region" aria-label="Actions">
-      <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
-      <button id="buy-premium" class="btn secondary" aria-label="Telegram Premium" data-i18n="telegram_premium">Telegram Premium</button>
-    </div>
-    <div class="card" role="region" aria-label="Популярные пакеты">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div style="font-weight:800;font-size:15px" data-i18n="popular_packages">Популярные пакеты</div>
-        <div style="color:var(--muted);font-size:13px" data-i18n="players_choice">Выбор игроков</div>
+  <div class="auth-gate-inline" style="display:none;">
+    <div class="card" style="text-align:center; margin-top:20vh;">
+      <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+      <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+        Вход через Telegram
       </div>
-      <div class="popular" id="popular-grid" aria-live="polite"></div>
-    </div>
-  </section>
-
-  <section id="buy-stars-page" class="page">
-    <div class="popular" id="stars-grid" aria-live="polite"></div>
-  </section>
-
-  <section id="buy-premium-page" class="page">
-    <div class="popular" id="premium-grid" aria-live="polite"></div>
-  </section>
-
-  <section id="recipient-page" class="page">
-    <div class="card" style="padding:22px">
-      <div style="font-weight:800;font-size:18px;margin-bottom:16px;text-align:center" data-i18n="send_to">Кому отправить?</div>
-
-      <div class="actions" style="margin-top:12px;gap:12px">
-        <button id="to-self" class="btn" data-i18n="to_self">Себе</button>
-        <button id="to-friend" class="btn secondary" data-i18n="to_friend">Другу</button>
+      <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+        Откройте приложение в Telegram, чтобы продолжить
       </div>
+      <a href="https://t.me/more_stars_bot" class="btn" style="text-decoration:none;">
+        Открыть в Telegram
+      </a>
+    </div>
+  </div>
+</section>
 
-      <div id="friend-input-container" style="display:none;margin-top:18px">
-        <div class="label" style="margin-bottom:8px" data-i18n="enter_friend_username">Введите @username друга</div>
-        <input type="text" id="friend-username" class="qty" placeholder="@username" />
-        <button id="friend-next-btn" class="btn secondary" style="display:none;margin-top:16px;" data-i18n="next">
-          Далее
+    <section id="shop" class="page active">
+      <img src="icon-1.png" alt="More Stars" class="logo" />
+      <div class="card actions" role="region" aria-label="Actions">
+        <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
+        <button id="buy-premium" class="btn secondary" aria-label="Telegram Premium" data-i18n="telegram_premium">Telegram Premium</button>
+      </div>
+      <div class="card" role="region" aria-label="Популярные пакеты">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-weight:800;font-size:15px" data-i18n="popular_packages">Популярные пакеты</div>
+          <div style="color:var(--muted);font-size:13px" data-i18n="players_choice">Выбор игроков</div>
+        </div>
+        <div class="popular" id="popular-grid" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section id="buy-stars-page" class="page">
+      <div class="popular" id="stars-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="buy-premium-page" class="page">
+      <div class="popular" id="premium-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="recipient-page" class="page">
+      <div class="card" style="padding:22px">
+        <div style="font-weight:800;font-size:18px;margin-bottom:16px;text-align:center" data-i18n="send_to">Кому отправить?</div>
+
+        <div class="actions" style="margin-top:12px;gap:12px">
+          <button id="to-self" class="btn" data-i18n="to_self">Себе</button>
+          <button id="to-friend" class="btn secondary" data-i18n="to_friend">Другу</button>
+        </div>
+
+        <div id="friend-input-container" style="display:none;margin-top:18px">
+          <div class="label" style="margin-bottom:8px" data-i18n="enter_friend_username">Введите @username друга</div>
+          <input type="text" id="friend-username" class="qty" placeholder="@username" />
+          <button id="friend-next-btn" class="btn secondary" style="display:none;margin-top:16px;" data-i18n="next">
+            Далее
+          </button>
+        </div>
+      </div>
+      <img src="selectRecipient.gif"
+           alt="Payment Animation"
+           style="width:128px;margin: 0 auto 17px; display:block;opacity:0.9;" />
+    </section>
+
+    <section id="payment-page" class="page">
+      <div class="card" style="text-align:center;padding:22px">
+
+        <div id="payment-title" style="font-weight:800;font-size:18px;margin-bottom:10px" data-i18n="purchase">
+          Покупка
+        </div>
+
+        <div id="payment-amount" style="font-size:15px;color:var(--muted);margin-bottom:22px">
+          —
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="pay-wallet" data-i18n="pay_wallet">Оплатить через Wallet</button>
+          <button class="btn" id="pay-cryptobot"
+                  style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
+            CryptoBot
+          </button>
+          <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
+            СБП (Российские банки)
+          </button>
+        </div>
+      </div>
+      <img src="paymentLoading.gif"
+           alt="Payment Animation"
+           style="width:150px;margin:60px auto 0;display:block;opacity:0.9;" />
+    </section>
+
+    <section id="success-page" class="page">
+      <div class="card" style="text-align:center;padding:22px">
+
+        <div style="font-weight:800;font-size:20px;margin-bottom:8px" data-i18n="payment_successful">
+          Оплата прошла успешно! 🎉
+        </div>
+
+        <div id="success-desc"
+             style="font-size:15px;color:var(--muted);margin-bottom:22px" data-i18n="thank_you">
+          Спасибо за покупку.
+        </div>
+
+        <button class="btn" id="success-back" style="margin-top: 50px" data-i18n="back_to_shop">
+          Вернуться в магазин
         </button>
       </div>
-    </div>
-    <img src="selectRecipient.gif"
-         alt="Payment Animation"
-         style="width:128px;margin: 0 auto 17px; display:block;opacity:0.9;" />
-  </section>
 
-  <section id="payment-page" class="page">
-    <div class="card" style="text-align:center;padding:22px">
+      <img src="paymentSuccess.gif"
+           alt="Success"
+           style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
 
-      <div id="payment-title" style="font-weight:800;font-size:18px;margin-bottom:10px" data-i18n="purchase">
-        Покупка
+      <canvas id="confetti-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+
+    </section>
+
+    <section id="failure-page" class="page">
+      <div class="card" style="text-align:center;padding:22px">
+
+        <div id="failure-title" style="font-weight:800;font-size:18px;margin-bottom:10px;color:#ff4d4f;" data-i18n="payment_failed">
+          Оплата не прошла
+        </div>
+
+        <div id="failure-desc" style="font-size:15px;color:var(--muted);margin-bottom:22px" data-i18n="payment_failed_desc">
+          К сожалению, оплата не была завершена. Попробуйте ещё раз.
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="retry-payment" data-i18n="retry">Попробовать снова</button>
+          <button class="btn secondary" id="go-shop" data-i18n="back_to_shop">Вернуться в магазин</button>
+        </div>
       </div>
 
-      <div id="payment-amount" style="font-size:15px;color:var(--muted);margin-bottom:22px">
-        —
-      </div>
+      <img src="paymentFailure.gif"
+           alt="Payment Failed"
+           style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
+    </section>
 
-      <div class="actions">
-        <button class="btn" id="pay-wallet" data-i18n="pay_wallet">Оплатить через Wallet</button>
-        <button class="btn" id="pay-cryptobot"
-                style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
-          CryptoBot
-        </button>
-        <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
-          СБП (Российские банки)
-        </button>
-      </div>
-    </div>
-    <img src="paymentLoading.gif"
-         alt="Payment Animation"
-         style="width:150px;margin:60px auto 0;display:block;opacity:0.9;" />
-  </section>
-
-  <section id="success-page" class="page">
-    <div class="card" style="text-align:center;padding:22px">
-
-      <div style="font-weight:800;font-size:20px;margin-bottom:8px" data-i18n="payment_successful">
-        Оплата прошла успешно! 🎉
-      </div>
-
-      <div id="success-desc"
-           style="font-size:15px;color:var(--muted);margin-bottom:22px" data-i18n="thank_you">
-        Спасибо за покупку.
-      </div>
-
-      <button class="btn" id="success-back" style="margin-top: 50px" data-i18n="back_to_shop">
-        Вернуться в магазин
-      </button>
-    </div>
-
-    <img src="paymentSuccess.gif"
-         alt="Success"
-         style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
-
-    <canvas id="confetti-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
-
-  </section>
-
-  <section id="failure-page" class="page">
-    <div class="card" style="text-align:center;padding:22px">
-
-      <div id="failure-title" style="font-weight:800;font-size:18px;margin-bottom:10px;color:#ff4d4f;" data-i18n="payment_failed">
-        Оплата не прошла
-      </div>
-
-      <div id="failure-desc" style="font-size:15px;color:var(--muted);margin-bottom:22px" data-i18n="payment_failed_desc">
-        К сожалению, оплата не была завершена. Попробуйте ещё раз.
-      </div>
-
-      <div class="actions">
-        <button class="btn" id="retry-payment" data-i18n="retry">Попробовать снова</button>
-        <button class="btn secondary" id="go-shop" data-i18n="back_to_shop">Вернуться в магазин</button>
-      </div>
-    </div>
-
-    <img src="paymentFailure.gif"
-         alt="Payment Failed"
-         style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
-  </section>
-
-</main>
+  </main>
 
 
-<nav class="bottom-nav" role="navigation">
+  <nav class="bottom-nav" role="navigation">
   <div class="nav-slot"><div class="nav-item" data-page="history"><div class="ico">📜</div><div class="label">History</div></div></div>
   <div class="nav-slot"><div class="nav-item active nav-center" data-page="shop"><div class="ico">🛒</div><div class="label">Shop</div></div></div>
   <div class="nav-slot"><div class="nav-item" data-page="profile"><div class="ico">👤</div><div class="label">Profile</div></div></div>
-</nav>
-
+  </nav>
+</div>
 <script>
 
 // Данные о покупке
@@ -1138,6 +1198,21 @@ async function initWebApp() {
 }
 // Вызываем initWebApp сразу после загрузки HTML
 window.addEventListener("DOMContentLoaded", async () => {
+
+  const isTelegram = !!window.Telegram?.WebApp?.initDataUnsafe?.user;
+
+  ['profile','history'].forEach(id => {
+    const page = document.getElementById(id);
+    if (!page) return;
+
+    page.querySelector('.page-content').style.display = isTelegram ? 'block' : 'none';
+    page.querySelector('.auth-gate-inline').style.display = isTelegram ? 'none' : 'block';
+  });
+
+  // Остальной контент сайта всегда показываем
+  if (isTelegram || !['profile','history'].includes(currentPage)) {
+    document.getElementById("app-content").style.display = "block";
+  }
 
   // --- Инициализация WebApp ---
   const userId = document.getElementById("user-id").textContent;
