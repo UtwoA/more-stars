@@ -1,7 +1,8 @@
 fastapi
 uvicorn
-httpx
 sqlalchemy
+psycopg2-binary
 pydantic
+httpx
 python-dotenv
 requests

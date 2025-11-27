@@ -1,5 +1,4 @@
 from datetime import timedelta
-
 from sqlalchemy import Column, String, Integer, Float, DateTime
 from .database import Base
 from .utils import now_msk
@@ -20,3 +19,4 @@ class Order(Base):
     success_page_shown = Column(Integer, default=0)
     failure_page_shown = Column(Integer, default=0)
     expires_at = Column(DateTime(timezone=True), default=lambda: now_msk() + timedelta(minutes=10))
+    idempotency_key = Column(String, nullable=True)

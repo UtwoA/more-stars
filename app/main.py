@@ -1,30 +1,43 @@
 import asyncio
-
-from fastapi import FastAPI, Request
+import uuid
+import os
+import logging
+from datetime import timedelta
+from fastapi import FastAPI, Request, Form, Query
 from pydantic import BaseModel
-from dotenv import load_dotenv
-import os, datetime, uuid, httpx
+from zoneinfo import ZoneInfo
+import httpx
 
-from bot import send_user_message
+from dotenv import load_dotenv
+
 from .database import SessionLocal, Base, engine
 from .models import Order
-from .crypto import convert_to_rub
-from datetime import timedelta
-from .cactuspay import cactuspay_create_payment, cactuspay_get_status
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from .utils import now_msk
+from .crypto import convert_to_rub
+from .cactuspay import cactuspay_create_payment, cactuspay_get_status
+from .bot import send_user_message
+from .robynhood import send_purchase_to_robynhood
 
-MSK = ZoneInfo("Europe/Moscow")
-
+# ------------------------------------------------------
+# INIT
+# ------------------------------------------------------
 load_dotenv()
-CRYPTOBOT_TOKEN = os.getenv("CRYPTOBOT_TOKEN")  # твой testnet токен
+
+CRYPTOBOT_TOKEN = os.getenv("CRYPTOBOT_TOKEN")
 CRYPTO_PAY_API_URL = "https://testnet-pay.crypt.bot/api/createInvoice"
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("main")
 
 app = FastAPI()
 Base.metadata.create_all(bind=engine)
 
+MSK = ZoneInfo("Europe/Moscow")
+
+
+# ------------------------------------------------------
+# MODELS
+# ------------------------------------------------------
 
 class OrderCreate(BaseModel):
     user_id: str
@@ -34,30 +47,42 @@ class OrderCreate(BaseModel):
     currency: str  # TON / USDT
 
 
+# ------------------------------------------------------
+# CRYPTO CREATE INVOICE
+# ------------------------------------------------------
+
 async def create_crypto_invoice(amount: float, currency: str, order_id: str, recipient: str):
     payload = {
-        "currency_type": "crypto",        # тип платежа
-        "asset": currency.upper(),        # криптовалюта
-        "amount": amount,                 # сумма
+        "currency_type": "crypto",
+        "asset": currency.upper(),
+        "amount": amount,
         "description": f"Покупка {recipient}",
         "payload": order_id,
         "allow_comments": False,
         "allow_anonymous": False
     }
+
     headers = {
         "Crypto-Pay-API-Token": CRYPTOBOT_TOKEN,
         "Content-Type": "application/json"
     }
+
     async with httpx.AsyncClient() as client:
         r = await client.post(CRYPTO_PAY_API_URL, json=payload, headers=headers, timeout=15)
         return r.json()
 
 
+# ------------------------------------------------------
+# CREATE ORDER
+# ------------------------------------------------------
+
 @app.post("/create_order")
 async def create_order(order: OrderCreate):
     amount_rub = await convert_to_rub(order.currency, order.amount)
+
     db = SessionLocal()
     order_id = str(uuid.uuid4())
+
     db_order = Order(
         order_id=order_id,
         user_id=order.user_id,
@@ -75,50 +100,60 @@ async def create_order(order: OrderCreate):
     db.commit()
     db.refresh(db_order)
 
-    # создаём инвойс в Crypto Pay Testnet
     invoice = await create_crypto_invoice(order.amount, order.currency, order_id, db_order.recipient)
 
     db.close()
+
     return {
         "order_id": order_id,
         "amount_rub": amount_rub,
-        "crypto_invoice": invoice  # тут будет JSON с ссылкой на оплату
+        "crypto_invoice": invoice
     }
 
+
+# ------------------------------------------------------
+# WEBHOOK CRYPTO
+# ------------------------------------------------------
 
 @app.post("/webhook/crypto")
 async def crypto_webhook(request: Request):
     data = await request.json()
-    print("WEBHOOK DATA:", data)
+    logger.info(f"WEBHOOK CRYPTO DATA: {data}")
 
-    order_id = data.get("order_id")  # пусто для этого webhook
-    # Для crypto-платежа берём ID из payload
-    if "payload" in data:
-        order_id = data["payload"].get("payload")
-
+    order_id = data.get("order_id") or data.get("payload", {}).get("payload")
     if not order_id:
         return {"status": "error", "message": "No order_id found"}
 
     db = SessionLocal()
     order = db.query(Order).filter(Order.order_id == order_id).first()
+
     if order:
         status = data.get("status") or data.get("payload", {}).get("status")
+
         if status == "paid":
             order.status = "paid"
             db.commit()
-            asyncio.create_task(
-                send_user_message(
-                    chat_id=int(order.user_id),
-                    product_name=order.product
-                )
-            )
+
+            asyncio.create_task(send_user_message(chat_id=int(order.user_id), product_name=order.product))
+
+            # Robynhood
             asyncio.create_task(send_purchase_to_robynhood(order))
+
     db.close()
     return {"status": "ok"}
 
 
+# ------------------------------------------------------
+# ORDER STATUS
+# ------------------------------------------------------
 
-from fastapi import Query
+def check_order_expired(order, db):
+    if order.status == "created" and order.expires_at < now_msk():
+        order.status = "failed"
+        db.commit()
+    return order
+
+
 @app.get("/order_status")
 async def order_status(order_id: str = Query(...)):
     db = SessionLocal()
@@ -128,18 +163,15 @@ async def order_status(order_id: str = Query(...)):
         db.close()
         return {"error": "Order not found"}
 
-    # проверяем таймер до закрытия сессии
     check_order_expired(order, db)
-
     result = {"order_id": order.order_id, "status": order.status}
+
     db.close()
     return result
 
 
-
 @app.get("/last_order_status")
 async def last_order_status(user_id: str = Query(...)):
-    print("USER_ID:", user_id)
     db = SessionLocal()
     order = (
         db.query(Order)
@@ -161,10 +193,12 @@ async def last_order_status(user_id: str = Query(...)):
             result["show_success_page"] = True
             order.success_page_shown = 1
             db.commit()
+
         elif order.status == "failed" and order.failure_page_shown == 0:
             result["show_failure_page"] = True
             order.failure_page_shown = 1
             db.commit()
+
         check_order_expired(order, db)
         db.close()
         return result
@@ -172,14 +206,13 @@ async def last_order_status(user_id: str = Query(...)):
     db.close()
     return {"status": "none"}
 
-from fastapi import Query
-from typing import List
+
+# ------------------------------------------------------
+# ORDER HISTORY
+# ------------------------------------------------------
 
 @app.get("/order_history")
 async def order_history(user_id: str = Query(...), limit: int = 10):
-    """
-    Возвращает историю последних заказов пользователя
-    """
     db = SessionLocal()
     orders = (
         db.query(Order)
@@ -190,34 +223,28 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
     )
     db.close()
 
-    result = [
-        {
-            "order_id": o.order_id,
-            "product": o.product,
-            "amount_rub": o.amount_rub,
-            "currency": o.currency,
-            "status": o.status,
-            "timestamp": o.timestamp.astimezone(MSK).isoformat()  # всегда МСК
-        }
-        for o in orders
-    ]
+    return {
+        "orders": [
+            {
+                "order_id": o.order_id,
+                "product": o.product,
+                "amount_rub": o.amount_rub,
+                "currency": o.currency,
+                "status": o.status,
+                "timestamp": o.timestamp.astimezone(MSK).isoformat()
+            }
+            for o in orders
+        ]
+    }
 
-    return {"orders": result}
 
-
-from datetime import datetime, timezone
-
-def check_order_expired(order, db):
-    now = now_msk()
-    if order.status == "created" and order.expires_at < now:
-        order.status = "failed"
-        db.commit()
-    return order
+# ------------------------------------------------------
+# CACTUSPAY
+# ------------------------------------------------------
 
 @app.post("/create_order_sbp")
 async def create_order_sbp(order: OrderCreate):
     db = SessionLocal()
-
     order_id = str(uuid.uuid4())
 
     db_order = Order(
@@ -237,18 +264,15 @@ async def create_order_sbp(order: OrderCreate):
     db.commit()
     db.refresh(db_order)
 
-    # создаём платёж
     payment = await cactuspay_create_payment(
         order_id=order_id,
         amount=order.amount,
         description=f"Покупка {order.product}",
         method="sbp"
     )
-    print("CREATE_ORDER_SBP RESPONSE:", payment["response"])
-    # Возвращаем URL для внешнего открытия
+
     return {"order_id": order_id, "pay_url": payment["response"]["url"]}
 
-from fastapi import Form
 
 @app.post("/webhook/cactuspay")
 async def cactuspay_webhook(
@@ -256,8 +280,6 @@ async def cactuspay_webhook(
     order_id: str = Form(...),
     amount: float = Form(...)
 ):
-    print("CACTUSPAY WEBHOOK RECEIVED:", id, order_id, amount)
-
     db = SessionLocal()
     order = db.query(Order).filter(Order.order_id == order_id).first()
 
@@ -265,303 +287,16 @@ async def cactuspay_webhook(
         db.close()
         return {"status": "error", "message": "Order not found"}
 
-    # после получения webhook ОБЯЗАНЫ проверить статус
     cactus = await cactuspay_get_status(order_id)
     status = cactus.get("response", {}).get("status")
 
-    # statuses: ACCEPT / WAIT
     if status == "ACCEPT":
         order.status = "paid"
         db.commit()
 
-        asyncio.create_task(
-            send_user_message(
-                chat_id=int(order.user_id),
-                product_name=order.product
-            )
-        )
+        asyncio.create_task(send_user_message(chat_id=int(order.user_id), product_name=order.product))
+
         asyncio.create_task(send_purchase_to_robynhood(order))
-    db.close()
-    return {"status": "ok"}
-
-
-import os
-import uuid
-import logging
-from dotenv import load_dotenv
-import httpx
-from sqlalchemy.orm import Session
-
-from .database import SessionLocal
-from .models import Order
-from bot import send_user_message
-
-# --- Инициализация .env ---
-load_dotenv()
-ROBYNHOOD_API_URL = os.getenv("ROBYNHOOD_TEST_API_URL", "https://robynhood.parssms.info/api/test/purchase")
-API_TOKEN = os.getenv("ROBYNHOOD_TEST_API_TOKEN")
-
-# --- Логгирование ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("robynhood_purchase")
-
-# --- Функция отправки заказа на Robynhood ---
-async def send_purchase_to_robynhood(order: Order):
-    """
-    Отправляет заказ на Robynhood после успешной оплаты.
-    """
-    idempotency_key = str(uuid.uuid4())
-
-    payload = {
-        "product_type": order.product,
-        "recipient": order.recipient,
-        "idempotency_key": idempotency_key
-    }
-
-    # Динамическое добавление параметров покупки
-    if order.product == "stars":
-        payload["quantity"] = 50
-    elif order.product == "premium":
-        payload["months"] = 3
-    elif order.product == "ads":
-        payload["amount"] = 1
-
-    headers = {
-        "Authorization": f"Bearer {API_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    logger.info(f"Sending Robynhood purchase for order {order.order_id}: {payload}")
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(ROBYNHOOD_API_URL, json=payload, headers=headers, timeout=15)
-        result = response.json()
-        logger.info(f"Robynhood response for order {order.order_id}: {result}")
-
-    # Сохраняем idempotency_key для отслеживания через вебхук
-    db: Session = SessionLocal()
-    db_order = db.query(Order).filter(Order.order_id == order.order_id).first()
-    if db_order:
-        db_order.idempotency_key = idempotency_key
-        db.commit()
-    db.close()
-
-    return result
-
-# --- Вебхук Robynhood ---
-from fastapi import FastAPI, Request, HTTPException
-
-app = FastAPI()
-
-@app.post("/webhook/robynhood_purchase")
-async def robynhood_webhook(request: Request):
-    data = await request.json()
-    key = data.get("idempotency_key")
-    status = data.get("status")
-
-    logger.info(f"Robynhood webhook received: {data}")
-
-    if not key:
-        logger.error("Webhook missing idempotency_key")
-        raise HTTPException(status_code=400, detail="No idempotency_key provided")
-
-    if status not in ("paid", "failed", "pending"):
-        logger.error(f"Unexpected status in webhook: {status}")
-        raise HTTPException(status_code=400, detail=f"Unexpected status: {status}")
-
-    db: Session = SessionLocal()
-    order = db.query(Order).filter(Order.idempotency_key == key).first()
-    if not order:
-        db.close()
-        logger.error(f"Order not found for idempotency_key: {key}")
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    order.status = status
-    db.commit()
-    db.refresh(order)
-    logger.info(f"Order {order.order_id} status updated to {status}")
-
-    # Уведомляем пользователя только при успешной покупке
-    if status == "paid":
-        await send_user_message(chat_id=int(order.user_id), product_name=order.product)
-        logger.info(f"User {order.user_id} notified for order {order.order_id}")
-
-    db.close()
-    return {"status": "ok"}
-
-    return order
-
-@app.post("/create_order_sbp")
-async def create_order_sbp(order: OrderCreate):
-    db = SessionLocal()
-
-    order_id = str(uuid.uuid4())
-
-    db_order = Order(
-        order_id=order_id,
-        user_id=order.user_id,
-        recipient=order.recipient,
-        product=order.product,
-        amount_rub=order.amount,
-        currency="RUB",
-        status="created",
-        type_of_payment="cactuspay_sbp",
-        timestamp=now_msk(),
-        expires_at=now_msk() + timedelta(minutes=10)
-    )
-
-    db.add(db_order)
-    db.commit()
-    db.refresh(db_order)
-
-    # создаём платёж
-    payment = await cactuspay_create_payment(
-        order_id=order_id,
-        amount=order.amount,
-        description=f"Покупка {order.product}",
-        method="sbp"
-    )
-    print("CREATE_ORDER_SBP RESPONSE:", payment["response"])
-    # Возвращаем URL для внешнего открытия
-    return {"order_id": order_id, "pay_url": payment["response"]["url"]}
-
-from fastapi import Form
-
-@app.post("/webhook/cactuspay")
-async def cactuspay_webhook(
-    id: str = Form(...),
-    order_id: str = Form(...),
-    amount: float = Form(...)
-):
-    print("CACTUSPAY WEBHOOK RECEIVED:", id, order_id, amount)
-
-    db = SessionLocal()
-    order = db.query(Order).filter(Order.order_id == order_id).first()
-
-    if not order:
-        db.close()
-        return {"status": "error", "message": "Order not found"}
-
-    # после получения webhook ОБЯЗАНЫ проверить статус
-    cactus = await cactuspay_get_status(order_id)
-    status = cactus.get("response", {}).get("status")
-
-    # statuses: ACCEPT / WAIT
-    if status == "ACCEPT":
-        order.status = "paid"
-        db.commit()
-
-        asyncio.create_task(
-            send_user_message(
-                chat_id=int(order.user_id),
-                product_name=order.product
-            )
-        )
-        asyncio.create_task(send_purchase_to_robynhood(order))
-    db.close()
-    return {"status": "ok"}
-
-
-import os
-import uuid
-import logging
-from dotenv import load_dotenv
-import httpx
-from sqlalchemy.orm import Session
-
-from .database import SessionLocal
-from .models import Order
-from bot import send_user_message
-
-# --- Инициализация .env ---
-load_dotenv()
-ROBYNHOOD_API_URL = os.getenv("ROBYNHOOD_TEST_API_URL", "https://robynhood.parssms.info/api/test/purchase")
-API_TOKEN = os.getenv("ROBYNHOOD_TEST_API_TOKEN")
-
-# --- Логгирование ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("robynhood_purchase")
-
-# --- Функция отправки заказа на Robynhood ---
-async def send_purchase_to_robynhood(order: Order):
-    """
-    Отправляет заказ на Robynhood после успешной оплаты.
-    """
-    idempotency_key = str(uuid.uuid4())
-
-    payload = {
-        "product_type": order.product,
-        "recipient": order.recipient,
-        "idempotency_key": idempotency_key
-    }
-
-    # Динамическое добавление параметров покупки
-    if order.product == "stars":
-        payload["quantity"] = 50
-    elif order.product == "premium":
-        payload["months"] = 3
-    elif order.product == "ads":
-        payload["amount"] = 1
-
-    headers = {
-        "Authorization": f"Bearer {API_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    logger.info(f"Sending Robynhood purchase for order {order.order_id}: {payload}")
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(ROBYNHOOD_API_URL, json=payload, headers=headers, timeout=15)
-        result = response.json()
-        logger.info(f"Robynhood response for order {order.order_id}: {result}")
-
-    # Сохраняем idempotency_key для отслеживания через вебхук
-    db: Session = SessionLocal()
-    db_order = db.query(Order).filter(Order.order_id == order.order_id).first()
-    if db_order:
-        db_order.idempotency_key = idempotency_key
-        db.commit()
-    db.close()
-
-    return result
-
-# --- Вебхук Robynhood ---
-from fastapi import FastAPI, Request, HTTPException
-
-app = FastAPI()
-
-@app.post("/webhook/robynhood_purchase")
-async def robynhood_webhook(request: Request):
-    data = await request.json()
-    key = data.get("idempotency_key")
-    status = data.get("status")
-
-    logger.info(f"Robynhood webhook received: {data}")
-
-    if not key:
-        logger.error("Webhook missing idempotency_key")
-        raise HTTPException(status_code=400, detail="No idempotency_key provided")
-
-    if status not in ("paid", "failed", "pending"):
-        logger.error(f"Unexpected status in webhook: {status}")
-        raise HTTPException(status_code=400, detail=f"Unexpected status: {status}")
-
-    db: Session = SessionLocal()
-    order = db.query(Order).filter(Order.idempotency_key == key).first()
-    if not order:
-        db.close()
-        logger.error(f"Order not found for idempotency_key: {key}")
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    order.status = status
-    db.commit()
-    db.refresh(order)
-    logger.info(f"Order {order.order_id} status updated to {status}")
-
-    # Уведомляем пользователя только при успешной покупке123
-    if status == "paid":
-        await send_user_message(chat_id=int(order.user_id), product_name=order.product)
-        logger.info(f"User {order.user_id} notified for order {order.order_id}")
 
     db.close()
     return {"status": "ok"}
