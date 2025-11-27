@@ -258,7 +258,7 @@
       Откройте приложение в Telegram, чтобы продолжить
     </div>
 
-    <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+    <a href="https://t.me/more_stars_bot/" class="btn" style="text-decoration:none;">
       Открыть в Telegram
     </a>
   </div>
@@ -268,46 +268,46 @@
   <main class="container">
 
     <section id="history" class="page">
-  <div class="page-content">
-    <div id="history-loader">
-      <div class="card skeleton" style="height:64px"></div>
-      <div class="card skeleton" style="height:64px"></div>
-    </div>
-    <div id="history-empty" class="card" style="display:none;">
-      <div style="font-weight:700" data-i18n="last_purchases">Последние покупки</div>
-      <div style="margin-top:8px;color:var(--muted)" data-i18n="history_empty">Здесь будет история операций</div>
-    </div>
-    <div id="history-list"></div>
-  </div>
-
-  <div class="auth-gate-inline" style="display:none;">
-    <div class="card" style="text-align:center; margin-top:20vh;">
-      <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
-      <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
-        Вход через Telegram
+      <div class="page-content">
+        <div id="history-loader">
+          <div class="card skeleton" style="height:64px"></div>
+          <div class="card skeleton" style="height:64px"></div>
+        </div>
+        <div id="history-empty" class="card" style="display:none;">
+          <div style="font-weight:700" data-i18n="last_purchases">Последние покупки</div>
+          <div style="margin-top:8px;color:var(--muted)" data-i18n="history_empty">Здесь будет история операций</div>
+        </div>
+        <div id="history-list"></div>
       </div>
-      <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
-        Откройте приложение в Telegram, чтобы продолжить
-      </div>
-      <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
-        Открыть в Telegram
-      </a>
-    </div>
-  </div>
-</section>
 
-    <section id="profile" class="page">
-  <div class="page-content">
-    <div class="card profile-row">
-      <img id="user-avatar" class="avatar skeleton" alt="avatar" src="" />
-      <div class="meta">
-        <div><div class="label" data-i18n="username">Username</div><div class="value" id="user-username">—</div></div>
-        <div><div class="label" data-i18n="id">ID</div><div class="value" id="user-id">—</div></div>
-        <div><div class="label" data-i18n="language">Язык</div>
-          <select id="lang-select" class="select"><option value="ru">RU</option><option value="en">EN</option></select>
+      <div class="auth-gate-inline" style="display:none;">
+        <div class="card" style="text-align:center; margin-top:20vh;">
+          <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+          <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+            Вход через Telegram
+          </div>
+          <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+            Откройте приложение в Telegram, чтобы продолжить
+          </div>
+          <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+            Открыть в Telegram
+          </a>
         </div>
       </div>
-    </div>
+    </section>
+
+    <section id="profile" class="page">
+      <div class="page-content">
+        <div class="card profile-row">
+          <img id="user-avatar" class="avatar skeleton" alt="avatar" src="" />
+          <div class="meta">
+            <div><div class="label" data-i18n="username">Username</div><div class="value" id="user-username">—</div></div>
+            <div><div class="label" data-i18n="id">ID</div><div class="value" id="user-id">—</div></div>
+            <div><div class="label" data-i18n="language">Язык</div>
+              <select id="lang-select" class="select"><option value="ru">RU</option><option value="en">EN</option></select>
+            </div>
+          </div>
+        </div>
 
     <div class="card">
       <div style="font-weight:800;margin-bottom:8px" data-i18n="referral_system">Реферальная система</div>
@@ -397,32 +397,52 @@
            style="width:128px;margin: 0 auto 17px; display:block;opacity:0.9;" />
     </section>
 
-    <section id="payment-page" class="page">
-      <div class="card" style="text-align:center;padding:22px">
+    <<section id="payment-page" class="page">
+      <div class="page-content">
+        <div id="payment-content">
+          <div class="card" style="text-align:center;padding:22px">
+            <div id="payment-title" style="font-weight:800;font-size:18px;margin-bottom:10px" data-i18n="purchase">
+              Покупка
+            </div>
 
-        <div id="payment-title" style="font-weight:800;font-size:18px;margin-bottom:10px" data-i18n="purchase">
-          Покупка
-        </div>
+            <div id="payment-amount" style="font-size:15px;color:var(--muted);margin-bottom:22px">
+              —
+            </div>
 
-        <div id="payment-amount" style="font-size:15px;color:var(--muted);margin-bottom:22px">
-          —
-        </div>
-
-        <div class="actions">
-          <button class="btn" id="pay-wallet" data-i18n="pay_wallet">Оплатить через Wallet</button>
-          <button class="btn" id="pay-cryptobot"
-                  style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
-            CryptoBot
-          </button>
-          <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
-            СБП (Российские банки)
-          </button>
+            <div class="actions">
+              <button class="btn" id="pay-wallet" data-i18n="pay_wallet">Оплатить через Wallet</button>
+              <button class="btn" id="pay-cryptobot"
+                      style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
+                CryptoBot
+              </button>
+              <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
+                СБП (Российские банки)
+              </button>
+            </div>
+          </div>
+          <img src="paymentLoading.gif"
+               alt="Payment Animation"
+               style="width:150px;margin:60px auto 0;display:block;opacity:0.9;" />
         </div>
       </div>
-      <img src="paymentLoading.gif"
-           alt="Payment Animation"
-           style="width:150px;margin:60px auto 0;display:block;opacity:0.9;" />
+          <div class="auth-gate-inline" style="display:none;">
+        <div class="card" style="text-align:center; margin-top:20vh;">
+          <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+          <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+            Вход через Telegram
+          </div>
+          <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+            Откройте приложение в Telegram, чтобы продолжить
+          </div>
+          <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+            Открыть в Telegram
+          </a>
+        </div>
+      </div>
     </section>
+
+
+
 
     <section id="success-page" class="page">
       <div class="card" style="text-align:center;padding:22px">
@@ -1201,7 +1221,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const isTelegram = !!window.Telegram?.WebApp?.initDataUnsafe?.user;
 
-  ['profile','history'].forEach(id => {
+  ['profile','history','payment-page'].forEach(id => {
     const page = document.getElementById(id);
     if (!page) return;
 
@@ -1210,7 +1230,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   // Остальной контент сайта всегда показываем
-  if (isTelegram || !['profile','history'].includes(currentPage)) {
+  if (isTelegram || !['profile','history','payment-page'].includes(currentPage)) {
     document.getElementById("app-content").style.display = "block";
   }
 
