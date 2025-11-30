@@ -8,13 +8,13 @@ from pydantic import BaseModel
 from zoneinfo import ZoneInfo
 import httpx
 
+
 from dotenv import load_dotenv
 
 from .database import SessionLocal, Base, engine
 from .models import Order
 from .utils import now_msk
-from .crypto import convert_to_rub
-from .cactuspay import cactuspay_create_payment, cactuspay_get_status
+from .crypto import convert_to_rub, convert_rub_to_crypto
 from bot import send_user_message
 from .robynhood import send_purchase_to_robynhood
 
@@ -76,10 +76,14 @@ async def create_crypto_invoice(amount: float, currency: str, order_id: str, rec
 # ------------------------------------------------------
 # CREATE ORDER
 # ------------------------------------------------------
-
 @app.post("/create_order")
 async def create_order(order: OrderCreate):
-    amount_rub = await convert_to_rub(order.currency, order.amount)
+
+    # рубли нам приходят с фронта
+    amount_rub = order.amount
+
+    # рубли → крипта (USDT или TON)
+    amount_crypto = await convert_rub_to_crypto(order.amount, order.currency)
 
     db = SessionLocal()
     order_id = str(uuid.uuid4())
@@ -101,7 +105,13 @@ async def create_order(order: OrderCreate):
     db.commit()
     db.refresh(db_order)
 
-    invoice = await create_crypto_invoice(order.amount, order.currency, order_id, db_order.recipient)
+    # создаём инвойс с количеством криптовалюты, а НЕ рублями
+    invoice = await create_crypto_invoice(
+        amount_crypto,
+        order.currency,
+        order_id,
+        db_order.recipient
+    )
 
     db.close()
 
@@ -112,37 +122,48 @@ async def create_order(order: OrderCreate):
     }
 
 
+
 # ------------------------------------------------------
 # WEBHOOK CRYPTO
 # ------------------------------------------------------
 
 @app.post("/webhook/crypto")
-async def crypto_webhook(request: Request):
+async def crypto_webhook(request: Request, x_cryptopay_signature: str = Header(None)):
+    """
+    Обрабатываем вебхук от Crypto Pay с проверкой подписи
+    """
+    if not x_cryptopay_signature:
+        raise HTTPException(status_code=400, detail="Missing X-CryptoPay-Signature header")
+
+    raw_body = await request.body()
+
+    if not verify_signature(raw_body, x_cryptopay_signature):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
     data = await request.json()
-    logger.info(f"WEBHOOK CRYPTO DATA: {data}")
+    logger.info(f"WEBHOOK CRYPTO DATA: {json.dumps(data)}")
 
     order_id = data.get("order_id") or data.get("payload", {}).get("payload")
     if not order_id:
         return {"status": "error", "message": "No order_id found"}
 
     db = SessionLocal()
-    order = db.query(Order).filter(Order.order_id == order_id).first()
-    print("DEBUG order:", order, "order_id from webhook:", order_id)
+    try:
+        order = db.query(Order).filter(Order.order_id == order_id).first()
+        if not order:
+            return {"status": "error", "message": "Order not found"}
 
-    if order:
         status = data.get("status") or data.get("payload", {}).get("status")
-        print("DEBUG status from webhook:", status)
-
-        if status == "paid":
+        if status == "paid" and order.status != "paid":
             order.status = "paid"
             db.commit()
 
+            # Отправка уведомления пользователю и обработка Robynhood
             asyncio.create_task(send_user_message(chat_id=int(order.user_id), product_name=order.product))
-
-            # Robynhood
             asyncio.create_task(send_purchase_to_robynhood(order))
+    finally:
+        db.close()
 
-    db.close()
     return {"status": "ok"}
 
 
@@ -240,70 +261,6 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
             for o in orders
         ]
     }
-
-
-# ------------------------------------------------------
-# CACTUSPAY
-# ------------------------------------------------------
-
-@app.post("/create_order_sbp")
-async def create_order_sbp(order: OrderCreate):
-    db = SessionLocal()
-    order_id = str(uuid.uuid4())
-
-    db_order = Order(
-        order_id=order_id,
-        user_id=order.user_id,
-        recipient=order.recipient,
-        product=order.product,
-        amount_rub=order.amount,
-        currency="RUB",
-        status="created",
-        type_of_payment="cactuspay_sbp",
-        timestamp=now_msk(),
-        expires_at=now_msk() + timedelta(minutes=10)
-    )
-
-    db.add(db_order)
-    db.commit()
-    db.refresh(db_order)
-
-    payment = await cactuspay_create_payment(
-        order_id=order_id,
-        amount=order.amount,
-        description=f"Покупка {order.product}",
-        method="sbp"
-    )
-
-    return {"order_id": order_id, "pay_url": payment["response"]["url"]}
-
-
-@app.post("/webhook/cactuspay")
-async def cactuspay_webhook(
-    id: str = Form(...),
-    order_id: str = Form(...),
-    amount: float = Form(...)
-):
-    db = SessionLocal()
-    order = db.query(Order).filter(Order.order_id == order_id).first()
-
-    if not order:
-        db.close()
-        return {"status": "error", "message": "Order not found"}
-
-    cactus = await cactuspay_get_status(order_id)
-    status = cactus.get("response", {}).get("status")
-
-    if status == "ACCEPT":
-        order.status = "paid"
-        db.commit()
-
-        asyncio.create_task(send_user_message(chat_id=int(order.user_id), product_name=order.product))
-
-        asyncio.create_task(send_purchase_to_robynhood(order))
-
-    db.close()
-    return {"status": "ok"}
 
 # ---------------------
 # WEBHOOK: ROBYNHOOD
