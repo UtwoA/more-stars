@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 import os
 import logging
@@ -127,8 +128,18 @@ async def create_order(order: OrderCreate):
 # WEBHOOK CRYPTO
 # ------------------------------------------------------
 
-@app.post("/webhook/crypto")
+#@app.post("/webhook/crypto")
 async def crypto_webhook(request: Request, x_cryptopay_signature: str = Header(None)):
+    headers = dict(request.headers)
+    logger.info(f"Incoming headers: {json.dumps(headers)}")
+
+    # Если хочешь, можешь отдельный вывод сделать для подписи
+    if x_cryptopay_signature:
+        logger.info(f"X-CryptoPay-Signature header: {x_cryptopay_signature}")
+    else:
+        logger.info("X-CryptoPay-Signature header not found")
+
+    return {"status": "ok"}  # временно, чтобы проверить заголовки
     """
     Обрабатываем вебхук от Crypto Pay с проверкой подписи
     """
