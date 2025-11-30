@@ -7,10 +7,6 @@ import asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Header, HTTPException
 
-from .database import SessionLocal
-from .models import Order
-from .bot import send_user_message
-from .robynhood import send_purchase_to_robynhood
 
 load_dotenv()
 
