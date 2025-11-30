@@ -129,26 +129,15 @@ async def create_order(order: OrderCreate):
 # ------------------------------------------------------
 
 @app.post("/webhook/crypto")
-async def crypto_webhook(request: Request, x_cryptopay_signature: str = Header(None)):
-    headers = dict(request.headers)
-    logger.info(f"Incoming headers: {json.dumps(headers)}")
-
-    # Если хочешь, можешь отдельный вывод сделать для подписи
-    if x_cryptopay_signature:
-        logger.info(f"X-CryptoPay-Signature header: {x_cryptopay_signature}")
-    else:
-        logger.info("X-CryptoPay-Signature header not found")
-
-    return {"status": "ok"}  # временно, чтобы проверить заголовки
-    """
-    Обрабатываем вебхук от Crypto Pay с проверкой подписи
-    """
-    if not x_cryptopay_signature:
-        raise HTTPException(status_code=400, detail="Missing X-CryptoPay-Signature header")
+async def crypto_webhook(
+    request: Request,
+    crypto_pay_api_signature: str = Header(None)  # <- изменено
+):
+    if not crypto_pay_api_signature:
+        raise HTTPException(status_code=400, detail="Missing crypto-pay-api-signature header")
 
     raw_body = await request.body()
-
-    if not verify_signature(raw_body, x_cryptopay_signature):
+    if not verify_signature(raw_body, crypto_pay_api_signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     data = await request.json()
@@ -169,7 +158,6 @@ async def crypto_webhook(request: Request, x_cryptopay_signature: str = Header(N
             order.status = "paid"
             db.commit()
 
-            # Отправка уведомления пользователю и обработка Robynhood
             asyncio.create_task(send_user_message(chat_id=int(order.user_id), product_name=order.product))
             asyncio.create_task(send_purchase_to_robynhood(order))
     finally:
