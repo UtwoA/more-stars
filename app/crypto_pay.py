@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 load_dotenv()
 
 CRYPTO_PAY_API_URL = "https://testnet-pay.crypt.bot/v1/invoice"
-API_TOKEN = os.getenv("CRYPTO_PAY_API_TOKEN")  # твой токен
+API_TOKEN = os.getenv("CRYPTOBOT_TOKEN")  # твой токен
 
 app = FastAPI()
 
