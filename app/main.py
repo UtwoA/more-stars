@@ -150,7 +150,7 @@ async def crypto_webhook(
     print("HEADER SIGNATURE:", crypto_pay_api_signature)
     print("COMPUTED:", hmac.new(API_TOKEN.encode(), raw_body, hashlib.sha256).hexdigest())
 
-    if not verify_signature(raw_body, crypto_pay_api_signature):
+    if not debug_hmac(raw_body, crypto_pay_api_signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     data = await request.json()
@@ -326,3 +326,12 @@ async def robynhood_webhook(request: Request):
 
     db.close()
     return {"status": "ok"}
+
+def debug_hmac(request_body: bytes, signature: str):
+    computed = hmac.new(API_TOKEN.encode(), request_body, hashlib.sha256).hexdigest()
+    print("BODY BYTES:", list(request_body))
+    print("BODY STRING:", request_body.decode(errors='replace'))
+    print("HEADER SIG:", signature)
+    print("COMPUTED SIG:", computed)
+    return computed == signature
+
