@@ -140,17 +140,15 @@ async def crypto_webhook(
         raise HTTPException(status_code=400, detail="Missing crypto-pay-api-signature header")
 
     raw_body = await request.body()
-    logger.info(f"Header signature: {crypto_pay_api_signature}")
-    logger.info(f"Raw body: {raw_body}")
-    logger.info(f"Computed signature: {hmac.new(API_TOKEN.encode(), raw_body, hashlib.sha256).hexdigest()}")
 
-    sig = crypto_pay_api_signature
+    print("RAW BYTES EXACT:")
+    print(list(raw_body))  # выводит каждый байт реального тела
 
-    print("=== RAW BODY START ===")
-    print(raw_body)
-    print("=== RAW BODY END ===")
+    print("RAW BODY STRING:")
+    print(raw_body.decode("utf-8", errors="replace"))
 
-    print("SIGNATURE:", sig)
+    print("HEADER SIGNATURE:", crypto_pay_api_signature)
+    print("COMPUTED:", hmac.new(API_TOKEN.encode(), raw_body, hashlib.sha256).hexdigest())
 
     if not verify_signature(raw_body, crypto_pay_api_signature):
         raise HTTPException(status_code=403, detail="Invalid signature")

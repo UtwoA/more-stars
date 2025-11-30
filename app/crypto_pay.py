@@ -7,6 +7,7 @@ import asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Header, HTTPException
 
+from app.main import logger
 
 load_dotenv()
 
@@ -40,10 +41,11 @@ def create_invoice(amount: float, currency: str, order_id: str, recipient: str):
     return response.json()
 
 
+
 def verify_signature(request_body: bytes, signature: str) -> bool:
     """
     Проверка HMAC подписи вебхука Crypto Pay
     """
-    secret = API_TOKEN.encode()
-    computed_signature = hmac.new(secret, request_body, hashlib.sha256).hexdigest()
+    computed_signature = hmac.new(API_TOKEN.encode(), request_body, hashlib.sha256).hexdigest()
+    logger.info(f"Computed signature: {computed_signature}")
     return hmac.compare_digest(computed_signature, signature)
