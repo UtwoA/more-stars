@@ -274,38 +274,35 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
 
 @app.post("/webhook/robynhood")
 async def robynhood_webhook(request: Request):
-    raw_body = await request.body()
-    logger.info(f"[WEBHOOK RAW BODY] {raw_body.decode(errors='replace')}")
-
-    headers = dict(request.headers)
-    logger.info(f"[WEBHOOK HEADERS] {headers}")
-
     data = await request.json()
     logger.info(f"[ROBYNHOOD WEBHOOK] {data}")
-
     idempotency_key = data.get("idempotency_key")
     status = data.get("status")
-    recipient_with_token = data.get("recipient", "")
-    recipient_parts = recipient_with_token.split("|")
-    recipient_login = recipient_parts[0]
-    webhook_token = recipient_parts[1] if len(recipient_parts) > 1 else None
 
-    if not idempotency_key or not webhook_token:
-        logger.error("[ROBYNHOOD] Missing idempotency_key or webhook_token")
+    if not idempotency_key:
+        logger.error("[ROBYNHOOD] No idempotency_key in webhook")
         return {"status": "error"}
 
     db = SessionLocal()
-    order = db.query(Order).filter(Order.idempotency_key == idempotency_key).first()
 
-    if not order or webhook_token != order.webhook_token:
-        logger.warning(f"[ROBYNHOOD] Unauthorized webhook attempt for idempotency_key={idempotency_key}")
+    order = db.query(Order).filter(Order.idempotency_key == idempotency_key).first()
+    if not order:
+        logger.error(f"[ROBYNHOOD] Order not found for idempotency_key={idempotency_key}")
         db.close()
-        return {"status": "error", "message": "Unauthorized"}
+        return {"status": "error", "message": "Order not found"}
 
     if status == "paid":
         order.status = "paid"
         db.commit()
         logger.info(f"[ROBYNHOOD] Order {order.order_id} marked PAID")
+
+        asyncio.create_task(
+            send_user_message(
+                chat_id=int(order.user_id),
+                product_name=order.product
+            )
+        )
+
     elif status == "failed":
         order.status = "failed"
         db.commit()
@@ -313,4 +310,12 @@ async def robynhood_webhook(request: Request):
 
     db.close()
     return {"status": "ok"}
+
+def debug_hmac(request_body: bytes, signature: str):
+    computed = hmac.new(API_TOKEN.encode(), request_body, hashlib.sha256).hexdigest()
+    print("BODY BYTES:", list(request_body))
+    print("BODY STRING:", request_body.decode(errors='replace'))
+    print("HEADER SIG:", signature)
+    print("COMPUTED SIG:", computed)
+    return computed == signature
 
