@@ -144,6 +144,14 @@ async def crypto_webhook(
     logger.info(f"Raw body: {raw_body}")
     logger.info(f"Computed signature: {hmac.new(API_TOKEN.encode(), raw_body, hashlib.sha256).hexdigest()}")
 
+    sig = crypto_pay_api_signature
+
+    print("=== RAW BODY START ===")
+    print(raw_body)
+    print("=== RAW BODY END ===")
+
+    print("SIGNATURE:", sig)
+
     if not verify_signature(raw_body, crypto_pay_api_signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
