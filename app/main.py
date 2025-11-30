@@ -3,7 +3,7 @@ import uuid
 import os
 import logging
 from datetime import timedelta
-from fastapi import FastAPI, Request, Form, Query, Header
+from fastapi import FastAPI, Request, Form, Query, Header, HTTPException
 from pydantic import BaseModel
 from zoneinfo import ZoneInfo
 import httpx
