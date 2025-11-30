@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import uuid
 import os
@@ -12,7 +14,7 @@ import httpx
 
 from dotenv import load_dotenv
 
-from .crypto_pay import verify_signature
+from .crypto_pay import verify_signature, API_TOKEN
 from .database import SessionLocal, Base, engine
 from .models import Order
 from .utils import now_msk
@@ -138,6 +140,10 @@ async def crypto_webhook(
         raise HTTPException(status_code=400, detail="Missing crypto-pay-api-signature header")
 
     raw_body = await request.body()
+    logger.info(f"Header signature: {crypto_pay_api_signature}")
+    logger.info(f"Raw body: {raw_body}")
+    logger.info(f"Computed signature: {hmac.new(API_TOKEN.encode(), raw_body, hashlib.sha256).hexdigest()}")
+
     if not verify_signature(raw_body, crypto_pay_api_signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
