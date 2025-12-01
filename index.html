@@ -770,26 +770,27 @@ document.getElementById("pay-sbp").onclick = async () => {
   const userId = document.getElementById("user-id").textContent;
   const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
 
-  const response = await fetch("/create_order_sbp", {
+  // POST на ваш бекенд /create_order_robokassa
+  const response = await fetch("/create_order_robokassa", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       user_id: userId,
       recipient: currentPurchase.recipient || "self",
-      product: currentPurchase.title,
+      product: currentPurchase.title, // s50, s300, s500 и т.д.
       amount: amountValue,
       currency: "RUB"
     })
   });
 
   const data = await response.json();
-  console.log("Создан заказ:", data);
+  console.log("Создан заказ Robokassa:", data);
 
-  if(data.pay_url){
-    // откроется внешняя вкладка для оплаты
-    window.open(data.pay_url, "_blank");
+  if(data.payment_url){
+    // открываем Robokassa в новой вкладке
+    window.open(data.payment_url, "_blank");
 
-    const orderId = data.order_id;
+    const orderId = data.invoice_id;
     const interval = setInterval(async () => {
       const s = await fetch(`/order_status?order_id=${orderId}`);
       const sd = await s.json();
@@ -808,9 +809,6 @@ document.getElementById("pay-sbp").onclick = async () => {
     alert("Ошибка при создании платежа: " + JSON.stringify(data));
   }
 };
-
-
-
 
 updateWalletUI();
 // Кнопка после удачной оплаты
