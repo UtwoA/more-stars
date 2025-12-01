@@ -21,6 +21,13 @@ from .utils import now_msk
 from .crypto import convert_to_rub, convert_rub_to_crypto
 from bot import send_user_message
 from .robynhood import send_purchase_to_robynhood
+from fastapi.responses import PlainTextResponse
+import uuid
+from datetime import datetime
+
+from .robokassa_service import generate_payment_link, verify_result_signature
+
+
 
 # ------------------------------------------------------
 # INIT
@@ -311,11 +318,71 @@ async def robynhood_webhook(request: Request):
     db.close()
     return {"status": "ok"}
 
-def debug_hmac(request_body: bytes, signature: str):
-    computed = hmac.new(API_TOKEN.encode(), request_body, hashlib.sha256).hexdigest()
-    print("BODY BYTES:", list(request_body))
-    print("BODY STRING:", request_body.decode(errors='replace'))
-    print("HEADER SIG:", signature)
-    print("COMPUTED SIG:", computed)
-    return computed == signature
+
+app = FastAPI()
+
+@app.post("/create_order_robokassa")
+async def create_order_robokassa(order: OrderCreate):
+    db = SessionLocal()
+    order_id = str(uuid.uuid4())
+
+    db_order = Order(
+        order_id=order_id,
+        user_id=order.user_id,
+        recipient=order.recipient if order.recipient != "@unknown" else "self",
+        product=order.product,
+        amount_rub=order.amount,
+        currency="RUB",
+        status="created",
+        type_of_payment="robokassa",
+        timestamp=datetime.utcnow(),
+        expires_at=datetime.utcnow() + timedelta(minutes=10)
+    )
+
+    db.add(db_order)
+    db.commit()
+    db.refresh(db_order)
+
+    payment_url = generate_payment_link(db_order)
+
+    db.close()
+
+    return {
+        "invoice_id": order_id,
+        "amount": db_order.amount_rub,
+        "payment_url": payment_url
+    }
+
+@app.post("/webhook/robokassa")
+async def robokassa_webhook(
+        OutSum: str = Query(...),
+        InvId: str = Query(...),
+        SignatureValue: str = Query(...)
+):
+    if not verify_result_signature(OutSum, InvId, SignatureValue):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
+    db = SessionLocal()
+    order = db.query(Order).filter(Order.order_id == InvId).first()
+    if not order:
+        db.close()
+        return PlainTextResponse(content=f"Order not found: {InvId}", status_code=404)
+
+    if order.status != "paid":
+        order.status = "paid"
+        db.commit()
+
+        asyncio.create_task(send_user_message(chat_id=int(order.user_id), product_name=order.product))
+        asyncio.create_task(send_purchase_to_robynhood(order))
+
+    db.close()
+    return PlainTextResponse(content=f"OK{InvId}", status_code=200)
+
+@app.get("/robokassa/success")
+async def robokassa_success():
+    return "<html><body><script>window.location.href='/'</script></body></html>"
+
+@app.get("/robokassa/fail")
+async def robokassa_fail():
+    return "<html><body><script>window.location.href='/'</script></body></html>"
 
