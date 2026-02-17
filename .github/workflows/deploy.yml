@@ -25,5 +25,5 @@ jobs:
             cd /opt/more-stars/more-stars-backend
             git pull origin master
             cd /opt/more-stars
-            docker-compose up -d --build
+            docker compose up -d --build
           EOF
