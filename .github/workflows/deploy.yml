@@ -20,10 +20,12 @@ jobs:
 
     - name: Deploy to server
       run: |
-        ssh -o StrictHostKeyChecking=no deploy@93.123.84.87 << 'EOF'
-          cd /var/www/more-stars/more-stars-frontend
+        ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
+          set -e
+          cd ${{ secrets.DEPLOY_REPO_PATH }}
           git pull origin master
-          sudo systemctl restart nginx
+          sudo rsync -av --delete ./ /var/www/more-stars-frontend/
+          sudo systemctl reload nginx
         EOF
 
     - name: Check website is live
