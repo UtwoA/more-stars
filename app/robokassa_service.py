@@ -21,10 +21,19 @@ FRONTEND_ROOT = os.getenv("FRONTEND_ROOT", "/")
 def _format_amount(amount: float) -> str:
     return f"{amount:.2f}"
 
+def _product_label(order) -> str:
+    if order.product_type == "stars":
+        return f"Stars x{order.quantity}"
+    if order.product_type == "premium":
+        return f"Premium {order.months} month(s)"
+    if order.product_type == "ads":
+        return f"Ads amount {order.amount}"
+    return order.product_type
+
 def _receipt_json_for_order(order) -> str:
     items = [
         {
-            "name": order.product,
+            "name": _product_label(order),
             "quantity": 1,
             "sum": float(order.amount_rub),
             "tax": "vat0",
@@ -59,7 +68,7 @@ def generate_payment_link(order, success_url: str = None, fail_url: str = None) 
         "MerchantLogin": ROBOKASSA_MERCHANT_LOGIN,
         "OutSum": out_sum,
         "InvId": inv_id,
-        "Description": f"Покупка {order.product}",
+        "Description": f"Покупка {_product_label(order)}",
         "SignatureValue": signature,
         "IsTest": ROBOKASSA_IS_TEST
     }
