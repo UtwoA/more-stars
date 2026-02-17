@@ -539,38 +539,38 @@ let currentPurchase = {
 
 // Популярные товары на главном экране
 const popularPackages=[
-  {id:'p1',title:'100 ⭐',price:'140 ₽',badge:'Best'},
-  {id:'p2',title:'500 ⭐',price:'700 ₽',badge:'Popular'},
-  {id:'p3',title:'1200 ⭐',price:'1680 ₽',badge:'Value'},
-  {id:'p4',title:'2500 ⭐',price:'3500 ₽',badge:'Top'},
-  {id:'p5',  title:'300 ⭐',   price:'420 ₽'},
-  {id:'p6',  title:'500 ⭐',   price:'700 ₽'}
+  {id:'p1',title:'100 ⭐',price:'140 ₽',badge:'Best', product_type:'stars', quantity:100},
+  {id:'p2',title:'500 ⭐',price:'700 ₽',badge:'Popular', product_type:'stars', quantity:500},
+  {id:'p3',title:'1200 ⭐',price:'1680 ₽',badge:'Value', product_type:'stars', quantity:1200},
+  {id:'p4',title:'2500 ⭐',price:'3500 ₽',badge:'Top', product_type:'stars', quantity:2500},
+  {id:'p5',  title:'300 ⭐',   price:'420 ₽', product_type:'stars', quantity:300},
+  {id:'p6',  title:'500 ⭐',   price:'700 ₽', product_type:'stars', quantity:500}
 ];
 
 // Карточки товаров на странице Stars
 const starsPackages = [
-  {id:'custom', title:'Custom ⭐', custom:true},
-  {id:'s50',   title:'50 ⭐',    price:'70 ₽',   badge:'New'},
-  {id:'s100',  title:'100 ⭐',   price:'140 ₽',  badge:'Best'},
-  {id:'s200',  title:'200 ⭐',   price:'280 ₽',  badge:'Popular'},
-  {id:'s300',  title:'300 ⭐',   price:'420 ₽'},
-  {id:'s500',  title:'500 ⭐',   price:'700 ₽',  badge:'Popular'},
-  {id:'s750',  title:'750 ⭐',   price:'1050 ₽'},
-  {id:'s1000', title:'1000 ⭐',  price:'1400 ₽', badge:'Value'},
-  {id:'s1200', title:'1200 ⭐',  price:'1680 ₽', badge:'Value'},
-  {id:'s1500', title:'1500 ⭐',  price:'2100 ₽'},
-  {id:'s2000', title:'2000 ⭐',  price:'2800 ₽'},
-  {id:'s2500', title:'2500 ⭐',  price:'3500 ₽', badge:'Top'},
-  {id:'s5000', title:'5000 ⭐',  price:'7000 ₽', badge:'Mega'},
-  {id:'s10000',title:'10000 ⭐', price:'14000 ₽', badge:'Ultra'},
-  {id:'s20000',title:'20000 ⭐', price:'28000 ₽', badge:'Legend'}
+  {id:'custom', title:'Custom ⭐', custom:true, product_type:'stars'},
+  {id:'s50',   title:'50 ⭐',    price:'70 ₽',   badge:'New', product_type:'stars', quantity:50},
+  {id:'s100',  title:'100 ⭐',   price:'140 ₽',  badge:'Best', product_type:'stars', quantity:100},
+  {id:'s200',  title:'200 ⭐',   price:'280 ₽',  badge:'Popular', product_type:'stars', quantity:200},
+  {id:'s300',  title:'300 ⭐',   price:'420 ₽', product_type:'stars', quantity:300},
+  {id:'s500',  title:'500 ⭐',   price:'700 ₽',  badge:'Popular', product_type:'stars', quantity:500},
+  {id:'s750',  title:'750 ⭐',   price:'1050 ₽', product_type:'stars', quantity:750},
+  {id:'s1000', title:'1000 ⭐',  price:'1400 ₽', badge:'Value', product_type:'stars', quantity:1000},
+  {id:'s1200', title:'1200 ⭐',  price:'1680 ₽', badge:'Value', product_type:'stars', quantity:1200},
+  {id:'s1500', title:'1500 ⭐',  price:'2100 ₽', product_type:'stars', quantity:1500},
+  {id:'s2000', title:'2000 ⭐',  price:'2800 ₽', product_type:'stars', quantity:2000},
+  {id:'s2500', title:'2500 ⭐',  price:'3500 ₽', badge:'Top', product_type:'stars', quantity:2500},
+  {id:'s5000', title:'5000 ⭐',  price:'7000 ₽', badge:'Mega', product_type:'stars', quantity:5000},
+  {id:'s10000',title:'10000 ⭐', price:'14000 ₽', badge:'Ultra', product_type:'stars', quantity:10000},
+  {id:'s20000',title:'20000 ⭐', price:'28000 ₽', badge:'Legend', product_type:'stars', quantity:20000}
 ];
 
 // Карточки товаров на странице Premium
 const premiumPackagesData = [
-  {id:'prem1', title:'Premium 1 год', price:'299 ₽', badge:'Top'},
-  {id:'prem3', title:'Premium 3 месяца', price:'799 ₽', badge:'Premium'},
-  {id:'prem6', title:'Premium 6 месяцев', price:'1499 ₽', badge:'HOT'}
+  {id:'prem1', title:'Premium 1 год', price:'299 ₽', badge:'Top', product_type:'premium', months:12},
+  {id:'prem3', title:'Premium 3 месяца', price:'799 ₽', badge:'Premium', product_type:'premium', months:3},
+  {id:'prem6', title:'Premium 6 месяцев', price:'1499 ₽', badge:'HOT', product_type:'premium', months:6}
 ];
 
 // Привязанный кошелек
@@ -756,15 +756,18 @@ document.getElementById("pay-cryptobot").onclick = async () => {
   // Создаём заказ на бекенде
   const userId = document.getElementById("user-id").textContent;
   const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
-  const response = await fetch("/create_order", {
+  const response = await fetch("/orders/crypto", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       user_id: userId,
       recipient: currentPurchase.recipient || "self",
-      product: currentPurchase.title,
-      amount: amountValue,
-      currency: "USDT" // или другая валюта
+      product_type: currentPurchase.product_type,
+      quantity: currentPurchase.quantity || null,
+      months: currentPurchase.months || null,
+      amount: currentPurchase.amount || null,
+      amount_rub: amountValue,
+      currency: "USDT" // or "TON"
     })
   });
 
@@ -778,7 +781,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
     // Периодически проверяем статус оплаты
     const orderId = data.order_id;
     const interval = setInterval(async () => {
-      const statusRes = await fetch(`/order_status?order_id=${orderId}`);
+      const statusRes = await fetch(`/orders/${orderId}`);
       const statusData = await statusRes.json();
       console.log("Проверка статуса:", statusData);
 
@@ -798,16 +801,18 @@ document.getElementById("pay-sbp").onclick = async () => {
   const userId = document.getElementById("user-id").textContent;
   const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
 
-  // POST на ваш бекенд /create_order_robokassa
-  const response = await fetch("/create_order_robokassa", {
+  // POST to backend /orders/robokassa
+  const response = await fetch("/orders/robokassa", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
       user_id: userId,
       recipient: currentPurchase.recipient || "self",
-      product: currentPurchase.title, // s50, s300, s500 и т.д.
-      amount: amountValue,
-      currency: "RUB"
+      product_type: currentPurchase.product_type,
+      quantity: currentPurchase.quantity || null,
+      months: currentPurchase.months || null,
+      amount: currentPurchase.amount || null,
+      amount_rub: amountValue
     })
   });
 
@@ -818,9 +823,9 @@ document.getElementById("pay-sbp").onclick = async () => {
     // открываем Robokassa в новой вкладке
     window.open(data.payment_url, "_blank");
 
-    const orderId = data.invoice_id;
+    const orderId = data.order_id;
     const interval = setInterval(async () => {
-      const s = await fetch(`/order_status?order_id=${orderId}`);
+      const s = await fetch(`/orders/${orderId}`);
       const sd = await s.json();
 
       if(sd.status === "paid"){
@@ -1001,6 +1006,19 @@ function setUserFromTelegram(){
 }
 setUserFromTelegram();
 
+function formatOrderProduct(order) {
+  if (order.product_type === "stars" && order.quantity) {
+    return `Stars x${order.quantity}`;
+  }
+  if (order.product_type === "premium" && order.months) {
+    return `Premium ${order.months} month(s)`;
+  }
+  if (order.product_type === "ads" && order.amount) {
+    return `Ads amount ${order.amount}`;
+  }
+  return order.product_type || "Unknown";
+}
+
 async function loadHistory(userId) {
   const loader = document.getElementById("history-loader");
   const empty = document.getElementById("history-empty");
@@ -1011,7 +1029,7 @@ async function loadHistory(userId) {
   list.innerHTML = "";
 
   try {
-    const response = await fetch(`/order_history?user_id=${userId}`);
+    const response = await fetch(`/orders/history?user_id=${userId}`);
     const data = await response.json();
 
     loader.style.display = "none";
@@ -1028,7 +1046,7 @@ async function loadHistory(userId) {
         else if(order.status === "failed") color = "red";
 
         card.innerHTML = `
-          <div><b>${order.product}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
+          <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
           <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}</div>
         `;
         list.appendChild(card);
@@ -1094,7 +1112,9 @@ function renderGrid(gridId, packages){
         openRecipientPage({
           id: "custom",
           title: `${val} ⭐`,
-          price: val + " ₽"
+          price: val + " ₽",
+          product_type: "stars",
+          quantity: val
         });
       });
 
@@ -1224,15 +1244,15 @@ async function initWebApp() {
   const userId = document.getElementById("user-id").textContent;
 
   try {
-    const res = await fetch(`/last_order_status?user_id=${userId}`);
+    const res = await fetch(`/orders/last?user_id=${userId}`);
     const data = await res.json();
 
     if (data.show_success_page) {
       // Показываем страницу успешной оплаты
-      openSuccessPage({ title: data.product });
+      openSuccessPage({ title: formatOrderProduct(data) });
     } else if (data.show_failure_page) {
       // Показываем страницу неудачной оплаты
-      openFailurePage({ title: data.product });
+      openFailurePage({ title: formatOrderProduct(data) });
     } else {
       // Обычная стартовая страница
       switchPage("shop");
@@ -1269,13 +1289,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   // --- Инициализация WebApp ---
   const userId = document.getElementById("user-id").textContent;
   try {
-    const res = await fetch(`/last_order_status?user_id=${userId}`);
+    const res = await fetch(`/orders/last?user_id=${userId}`);
     const data = await res.json();
 
     if (data.show_success_page) {
-      openSuccessPage({title: data.product});
+      openSuccessPage({title: formatOrderProduct(data)});
     } else if (data.show_failure_page) {
-      openFailurePage({title: data.product});
+      openFailurePage({title: formatOrderProduct(data)});
     } else {
       switchPage("shop");
     }
