@@ -184,7 +184,20 @@
     .meta { flex:1; display:flex; flex-direction:column; gap:6px; }
     .label { color:var(--muted); font-size:13px; }
     .value { font-weight:700; font-size:15px; color:var(--text); }
-    .select { background: rgba(0,0,0,0.06); border:none; color:var(--text); padding:8px 10px; border-radius:10px; }
+    .select {
+      min-width: 140px;
+      background: rgba(0,0,0,0.18);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-weight: 700;
+      outline: none;
+    }
+    .select:focus {
+      border-color: rgba(42,139,242,0.7);
+      box-shadow: 0 0 0 3px rgba(42,139,242,0.2);
+    }
 
     .skeleton { border-radius:10px; background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.08), rgba(255,255,255,0.03)); background-size:200% 100%; animation: shimmer 1.4s linear infinite; }
     @keyframes shimmer{ 0%{ background-position:200% 0 } 100%{ background-position:-200% 0 } }
@@ -294,7 +307,7 @@
             <div><div class="label" data-i18n="username">Username</div><div class="value" id="user-username">—</div></div>
             <div><div class="label" data-i18n="id">ID</div><div class="value" id="user-id">—</div></div>
             <div><div class="label" data-i18n="language">Язык</div>
-              <select id="lang-select" class="select"><option value="ru">RU</option><option value="en">EN</option></select>
+              <select id="lang-select" class="select" aria-label="Language selector"><option value="ru">Русский</option><option value="en">English</option></select>
             </div>
           </div>
         </div>
@@ -552,6 +565,7 @@ const premiumPackagesData = [
 ];
 
 let recipientMode = 'self';
+let currentPage = 'shop';
 
 let currentLang = localStorage.getItem('lang') || 'ru'; // глобально
 
@@ -896,6 +910,7 @@ function renderPopular(){
 
 // Смена страницы пагинацией (панелью навигации)
 function switchPage(id,node){
+  currentPage = id;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   const page=document.getElementById(id);
   if(page) page.classList.add('active');
@@ -990,6 +1005,7 @@ async function loadHistory(userId) {
     }
   } catch (err) {
     loader.style.display = "none";
+    empty.style.display = "block";
     console.error("Ошибка загрузки истории:", err);
   }
 }
@@ -1189,10 +1205,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     footer.style.display = 'block';
   }
 
-  // Остальной контент сайта всегда показываем
-  if (isTelegram || !['profile','history','payment-page'].includes(currentPage)) {
-    document.getElementById("app-content").style.display = "block";
-  }
+  // Контент приложения всегда показываем, а доступ к закрытым страницам управляется через auth-gate-inline
+  document.getElementById("app-content").style.display = "block";
 
   // --- Инициализация WebApp ---
   const userId = document.getElementById("user-id").textContent;
