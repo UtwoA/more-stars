@@ -953,6 +953,7 @@ async function loadHistory(userId) {
 
         card.innerHTML = `
           <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
+          <div style="font-size:12px;color:var(--muted);">Кому: ${order.recipient || "self"}</div>
           <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}</div>
         `;
         list.appendChild(card);

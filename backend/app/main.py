@@ -366,10 +366,25 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
             .limit(limit)
             .all()
         )
+
+        # Keep history statuses fresh even if webhook is delayed/missed.
+        for order in orders:
+            await _sync_crypto_order_status(order, db)
+            _check_order_expired(order, db)
+
+        orders = (
+            db.query(Order)
+            .filter(Order.user_id == user_id)
+            .order_by(Order.timestamp.desc())
+            .limit(limit)
+            .all()
+        )
+
         return {
             "orders": [
                 {
                     "order_id": o.order_id,
+                    "recipient": o.recipient,
                     "product_type": o.product_type,
                     "quantity": o.quantity,
                     "months": o.months,
