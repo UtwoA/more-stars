@@ -50,7 +50,7 @@
     .page.active{ display:block; }
     @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
 
-    .logo { display:block; width: 72vw; max-width: 420px; margin: 2.5vh auto 2vh; transform-origin:center; transition: transform 420ms cubic-bezier(.2,.9,.3,1); }
+    .logo { display:block; width: 72vw; max-width: 420px; height: auto; margin: 2.5vh auto 2vh; transform-origin:center; transition: transform 420ms cubic-bezier(.2,.9,.3,1); }
     .logo:active { transform: scale(.995); }
 
     .card {
@@ -358,7 +358,7 @@
 </section>
 
     <section id="shop" class="page active">
-      <img src="icon-1.png" alt="More Stars" class="logo" width="420" height="420" loading="eager" fetchpriority="high" decoding="sync" />
+      <img src="icon-1.png" alt="More Stars" class="logo" loading="eager" fetchpriority="high" decoding="sync" />
       <div class="card actions" role="region" aria-label="Actions">
         <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
         <button id="buy-premium" class="btn secondary" aria-label="Telegram Premium" data-i18n="telegram_premium">Telegram Premium</button>
