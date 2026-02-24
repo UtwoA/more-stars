@@ -1,0 +1,39 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Deploy to server (frontend)
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
+            set -e
+            cd /opt/more-stars/more-stars-frontend
+            git pull origin master
+            rsync -av --delete ./ /var/www/more-stars-frontend/
+            systemctl reload nginx
+          EOF
+
+      - name: Check website is live
+        run: |
+          STATUS=$(curl -o /dev/null -s -w "%{http_code}\n" https://more-stars.online)
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Website is not responding!"
+            exit 1
+          else
+            echo "Website is live!"
+          fi

@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<!--suppress CssUnresolvedCustomProperty -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>More Stars — Mini App (Dark TWA)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{
+      --bg-1: #0e0f12;
+      --bg-2: #131518;
+      --card: rgba(255,255,255,0.04);
+      --card-strong: rgba(255,255,255,0.06);
+      --glass-weak: rgba(255,255,255,0.06);
+      --glass-strong: rgba(255,255,255,0.12);
+      --text: #e9eef7;
+      --muted: rgba(233,238,247,0.52);
+      --accentA: #2a8bf2;
+      --accentB: #8b5cff;
+      --accentGrad: linear-gradient(135deg,var(--accentA),var(--accentB));
+      --shadow-1: 0 8px 30px rgba(0,0,0,0.5);
+      --nav-height: 84px;
+      --radius-lg: 20px;
+      --radius-md: 12px;
+      --transition: 280ms cubic-bezier(.2,.9,.3,1);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:
+        radial-gradient(1200px 600px at 10% 10%, rgba(42,139,242,0.06), transparent 6%),
+        radial-gradient(900px 400px at 90% 90%, rgba(139,92,255,0.04), transparent 6%),
+        var(--bg-1);
+      color:var(--text);
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      display:flex;
+      flex-direction:column;
+      min-height:100vh;
+      -webkit-tap-highlight-color: transparent;
+      overflow-x:hidden;
+    }
+
+    .container { padding:18px; padding-bottom: calc(var(--nav-height) + 36px); width:100%; max-width:980px; margin:0 auto; flex:1; }
+    .page{ display:none; animation: fadeUp .32s var(--transition) both; }
+    .page.active{ display:block; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+    .logo { display:block; width: 72vw; max-width: 420px; margin: 2.5vh auto 2vh; transform-origin:center; transition: transform 420ms cubic-bezier(.2,.9,.3,1); }
+    .logo:active { transform: scale(.995); }
+
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: var(--radius-lg);
+      padding:14px;
+      margin-bottom:14px;
+      backdrop-filter: blur(12px) saturate(130%);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+
+    .actions { display:flex; flex-direction:column; gap:10px; margin-top:6px; }
+    .btn {
+      display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      width:100%; padding:14px; border-radius:14px; border:1px solid rgba(255,255,255,0.04);
+      font-weight:700; font-size:15px; color: #fff;
+      background: var(--accentGrad);
+      box-shadow: 0 8px 28px rgba(42,139,242,0.08);
+      transition: transform var(--transition), box-shadow var(--transition);
+      cursor:pointer;
+    }
+    .btn:active{ transform: translateY(2px) scale(.995); box-shadow:0 6px 20px rgba(0,0,0,0.5); }
+    .btn.secondary{
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      color:var(--text);
+      border:1px solid rgba(255,255,255,0.06);
+      box-shadow:none;
+    }
+
+    .popular {
+      display:grid;
+      grid-template-columns: repeat(2,1fr);
+      gap:12px;
+      align-items: start; /* вот это важно */
+    }
+
+    .pkg {
+      border-radius:14px; padding:12px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border:1px solid rgba(255,255,255,0.04);
+      display:flex; flex-direction:column; gap:8px; height:100px; justify-content:space-between;
+      animation: pkgFadeUp 400ms forwards;
+    }
+
+    .pkg > .bottom-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: nowrap;       /* не переносить элементы */
+      gap: 8px;
+    }
+
+    .pkg .price {
+      white-space: nowrap;     /* чтобы "₽" не переносился */
+    }
+
+    .pkg .btn {
+      flex: 0 0 auto;    /* не сжимается и не растягивается */
+      max-width: 50%;    /* ограничение ширины, чтобы не вылазила */
+      padding: 6px 10px; /* можно чуть уменьшить */
+      font-size: 13px;
+    }
+
+    @keyframes pkgFadeUp {
+      0% { opacity: 0; transform: translateY(20px) scale(0.98); }
+      60% { opacity: 1; transform: translateY(-4px) scale(1.02); }
+      100% { transform: translateY(0) scale(1); }
+    }
+
+    .pkg .title{
+      font-weight:800;
+      font-size:14px;
+    }
+    .pkg .price{ color:var(--muted); font-size:13px; }
+
+    .pkg .badge{
+      display:inline-flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px;
+      font-weight:700; font-size:13px; color:#fff;
+      background: linear-gradient(90deg, rgba(42,139,242,0.98), rgba(139,92,255,0.96));
+      width:max-content;
+    }
+    .pkg.custom {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;   /* <-- центрирует содержимое по горизонтали */
+      min-height: 140px;     /* чтобы соседние карточки не растягивались */
+    }
+
+    .pkg.custom .btn {
+      margin-top: 6px;       /* немного пространства сверху */
+      flex: 0 0 auto;        /* не растягивается */
+      max-width: 80%;        /* ограничение ширины */
+      text-align: center;
+    }
+
+
+    .qty {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      color: var(--text);
+      font-weight:700;
+      font-size:15px;
+      text-align:center;
+      outline:none;
+      transition: box-shadow 180ms ease, transform 180ms ease;
+    }
+    .qty:focus {
+      box-shadow:0 6px 16px rgba(42,139,242,0.2);
+      transform:translateY(-2px);
+    }
+
+    .pkg .btn {
+      padding:6px 12px;
+      font-size:13px;
+      border-radius:8px;
+      min-width:60px;
+      text-align:center;
+      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+    .pkg .btn:hover{
+      transform: translateY(-2px);
+      box-shadow:0 6px 16px rgba(42,139,242,0.2);
+      background: linear-gradient(135deg, #2a8bf2, #8b5cff);
+    }
+
+    .profile-row{ display:flex; gap:12px; align-items:center; }
+    .avatar{ width:80px; height:80px; border-radius:20px; object-fit:cover; border:1px solid rgba(255,255,255,0.06); background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:2px; }
+    .meta { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .label { color:var(--muted); font-size:13px; }
+    .value { font-weight:700; font-size:15px; color:var(--text); }
+    .select { background: rgba(0,0,0,0.06); border:none; color:var(--text); padding:8px 10px; border-radius:10px; }
+
+    .skeleton { border-radius:10px; background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.08), rgba(255,255,255,0.03)); background-size:200% 100%; animation: shimmer 1.4s linear infinite; }
+    @keyframes shimmer{ 0%{ background-position:200% 0 } 100%{ background-position:-200% 0 } }
+
+    .bottom-nav {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%) translateZ(0); /* форсируем GPU слой */
+      bottom: 18px;
+      width: 92vw;
+      max-width: 980px;
+      height: var(--nav-height);
+      border-radius: 28px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+
+      /* фон с большей непрозрачностью для корректного blur на iOS */
+      background: rgba(30,30,30,0.3);
+      /* для поддержки градиента и прозрачности */
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.08));
+
+      border: 1px solid rgba(255,255,255,0.06);
+      backdrop-filter: blur(60px) saturate(150%);
+      -webkit-backdrop-filter: blur(60px) saturate(150%); /* для Safari на iOS */
+
+      box-shadow: var(--shadow-1);
+      z-index: 140;
+      will-change: transform, backdrop-filter; /* оптимизация рендеринга на мобильных */
+    }
+
+    .nav-slot { flex:1; display:flex; justify-content:center; align-items:center; }
+    .nav-item { display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; color:var(--muted); border-radius:16px; padding:6px 8px; transition: all 260ms cubic-bezier(.2,.9,.3,1); transform: translateY(0); user-select:none; }
+    .nav-item .ico { width:48px; height:48px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; transition: all 260ms; background: transparent; color:var(--text); }
+    .nav-item.active { color:var(--text); transform:translateY(-6px); }
+    .nav-item.active .ico { background: linear-gradient(135deg, rgba(42,139,242,0.16), rgba(139,92,255,0.12)); box-shadow:0 10px 28px rgba(42,139,242,0.06), inset 0 0 10px rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); transform:scale(1.04); }
+    .nav-item .label { font-size:12px; color:var(--muted); }
+    .nav-center { transform: translateY(-4px); }
+
+    .page {
+  display: none;
+    }
+
+  .page.active {
+    display: block;
+  }
+
+  </style>
+</head>
+<body>
+
+<div id="auth-gate" style="display:none; padding:18px;">
+  <div class="card" style="text-align:center; margin-top:20vh;">
+    <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+    <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+      Вход через Telegram
+    </div>
+    <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+      Откройте приложение в Telegram, чтобы продолжить
+    </div>
+
+    <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+      Открыть в Telegram
+    </a>
+  </div>
+</div>
+
+<div id="app-content">
+  <main class="container">
+
+    <section id="history" class="page">
+      <div class="page-content">
+        <div id="history-loader">
+          <div class="card skeleton" style="height:64px"></div>
+          <div class="card skeleton" style="height:64px"></div>
+        </div>
+        <div id="history-empty" class="card" style="display:none;">
+          <div style="font-weight:700" data-i18n="last_purchases">Последние покупки</div>
+          <div style="margin-top:8px;color:var(--muted)" data-i18n="history_empty">Здесь будет история операций</div>
+        </div>
+        <div id="history-list"></div>
+      </div>
+
+      <div class="auth-gate-inline" style="display:none;">
+        <div class="card" style="text-align:center; margin-top:20vh;">
+          <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+          <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+            Вход через Telegram
+          </div>
+          <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+            Откройте приложение в Telegram, чтобы продолжить
+          </div>
+          <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+            Открыть в Telegram
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section id="profile" class="page">
+      <div class="page-content">
+        <div class="card profile-row">
+          <img id="user-avatar" class="avatar skeleton" alt="avatar" src="" />
+          <div class="meta">
+            <div><div class="label" data-i18n="username">Username</div><div class="value" id="user-username">—</div></div>
+            <div><div class="label" data-i18n="id">ID</div><div class="value" id="user-id">—</div></div>
+            <div><div class="label" data-i18n="language">Язык</div>
+              <select id="lang-select" class="select"><option value="ru">RU</option><option value="en">EN</option></select>
+            </div>
+          </div>
+        </div>
+
+    <div class="card">
+      <div style="font-weight:800;margin-bottom:8px" data-i18n="referral_system">Реферальная система</div>
+      <div class="label" data-i18n="your_link">Ваша ссылка</div>
+      <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);word-break:break-all">—</a>
+      <div style="margin-top:12px"><div class="label" data-i18n="invited">Приглашено</div><div class="value" id="ref-count">0</div></div>
+    </div>
+
+    <div class="card" style="text-align:center;">
+      <div style="font-weight:800;margin-bottom:8px" data-i18n="contact_us">Связаться с нами</div>
+      <button id="contact-support" class="btn" style="margin-top: 12px;" data-i18n="support">
+        Поддержка
+      </button>
+    </div>
+  </div>
+
+  <div class="auth-gate-inline" style="display:none;">
+    <div class="card" style="text-align:center; margin-top:20vh;">
+      <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+      <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+        Вход через Telegram
+      </div>
+      <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+        Откройте приложение в Telegram, чтобы продолжить
+      </div>
+      <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+        Открыть в Telegram
+      </a>
+    </div>
+  </div>
+</section>
+
+    <section id="shop" class="page active">
+      <img src="icon-1.png" alt="More Stars" class="logo" />
+      <div class="card actions" role="region" aria-label="Actions">
+        <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
+        <button id="buy-premium" class="btn secondary" aria-label="Telegram Premium" data-i18n="telegram_premium">Telegram Premium</button>
+      </div>
+      <div class="card" role="region" aria-label="Популярные пакеты">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-weight:800;font-size:15px" data-i18n="popular_packages">Популярные пакеты</div>
+          <div style="color:var(--muted);font-size:13px" data-i18n="players_choice">Выбор игроков</div>
+        </div>
+        <div class="popular" id="popular-grid" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section id="buy-stars-page" class="page">
+      <div class="popular" id="stars-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="buy-premium-page" class="page">
+      <div class="popular" id="premium-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="recipient-page" class="page">
+      <div class="card" style="padding:22px">
+        <div style="font-weight:800;font-size:18px;margin-bottom:16px;text-align:center" data-i18n="send_to">Кому отправить?</div>
+
+        <div class="actions" style="margin-top:12px;gap:12px">
+          <button id="to-self" class="btn" data-i18n="to_self">Себе</button>
+          <button id="to-friend" class="btn secondary" data-i18n="to_friend">Другу</button>
+        </div>
+
+        <div id="friend-input-container" style="display:none;margin-top:18px">
+          <div class="label" style="margin-bottom:8px" data-i18n="enter_friend_username">Введите @username друга</div>
+          <input type="text" id="friend-username" class="qty" placeholder="@username" />
+          <button id="friend-next-btn" class="btn secondary" style="display:none;margin-top:16px;" data-i18n="next">
+            Далее
+          </button>
+        </div>
+      </div>
+      <img src="selectRecipient.gif"
+           alt="Payment Animation"
+           style="width:128px;margin: 0 auto 17px; display:block;opacity:0.9;" />
+    </section>
+
+    <section id="payment-page" class="page">
+      <div class="page-content">
+        <div id="payment-content">
+          <div class="card" style="text-align:center;padding:22px">
+            <div id="payment-title" style="font-weight:800;font-size:18px;margin-bottom:10px" data-i18n="purchase">
+              Покупка
+            </div>
+
+            <div id="payment-amount" style="font-size:15px;color:var(--muted);margin-bottom:22px">
+              —
+            </div>
+
+            <div class="actions">
+              <button class="btn" id="pay-wallet" data-i18n="pay_wallet">Оплатить через Wallet</button>
+              <button class="btn" id="pay-cryptobot"
+                      style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
+                CryptoBot
+              </button>
+              <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
+                СБП (Российские банки)
+              </button>
+            </div>
+          </div>
+          <img src="paymentLoading.gif"
+               alt="Payment Animation"
+               style="width:150px;margin:60px auto 0;display:block;opacity:0.9;" />
+        </div>
+      </div>
+          <div class="auth-gate-inline" style="display:none;">
+        <div class="card" style="text-align:center; margin-top:20vh;">
+          <img src="icon-1.png" style="width:120px; opacity:0.9; margin-bottom:18px;" />
+          <div style="font-size:20px; font-weight:800; margin-bottom:12px;">
+            Вход через Telegram
+          </div>
+          <div style="color:var(--muted); font-size:14px; margin-bottom:20px;">
+            Откройте приложение в Telegram, чтобы продолжить
+          </div>
+          <a href="https://t.me/more_stars_bot/app?startapp=1" class="btn" style="text-decoration:none;">
+            Открыть в Telegram
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section id="success-page" class="page">
+      <div class="card" style="text-align:center;padding:22px">
+
+        <div style="font-weight:800;font-size:20px;margin-bottom:8px" data-i18n="payment_successful">
+          Оплата прошла успешно! 🎉
+        </div>
+
+        <div id="success-desc"
+             style="font-size:15px;color:var(--muted);margin-bottom:22px" data-i18n="thank_you">
+          Спасибо за покупку.
+        </div>
+
+        <button class="btn" id="success-back" style="margin-top: 50px" data-i18n="back_to_shop">
+          Вернуться в магазин
+        </button>
+      </div>
+
+      <img src="paymentSuccess.gif"
+           alt="Success"
+           style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
+
+      <canvas id="confetti-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+
+    </section>
+
+    <section id="failure-page" class="page">
+      <div class="card" style="text-align:center;padding:22px">
+
+        <div id="failure-title" style="font-weight:800;font-size:18px;margin-bottom:10px;color:#ff4d4f;" data-i18n="payment_failed">
+          Оплата не прошла
+        </div>
+
+        <div id="failure-desc" style="font-size:15px;color:var(--muted);margin-bottom:22px" data-i18n="payment_failed_desc">
+          К сожалению, оплата не была завершена. Попробуйте ещё раз.
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="retry-payment" data-i18n="retry">Попробовать снова</button>
+          <button class="btn secondary" id="go-shop" data-i18n="back_to_shop">Вернуться в магазин</button>
+        </div>
+      </div>
+
+      <img src="paymentFailure.gif"
+           alt="Payment Failed"
+           style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
+    </section>
+
+  </main>
+
+<!-- Подвал -->
+<footer id="web-footer" class="card" style="margin-top:auto; margin-bottom: 100px; margin-left: 10px; margin-right: 10px">
+  <div style="display:flex; flex-direction:column; gap:16px;">
+    <!-- Контакты и реквизиты -->
+    <div>
+      <h3 style="color:var(--accentA); margin-bottom:6px;">Контактная информация и реквизиты</h3>
+      <p>Полное наименование: more-stars</p>
+      <p>ИНН: 645008281403</p>
+      <p>ОГРН/ОГРНИП: -</p>
+      <p>Контактный телефон: +7 909 331-18-86</p>
+      <p>Контактный e-mail: workspace.alexey@gmail.com</p>
+    </div>
+
+    <!-- Прайс -->
+    <div>
+      <h3 style="color:var(--accentA); margin-bottom:6px;">Описание и стоимость товаров/услуг</h3>
+      <p>Полный прайс-лист доступен по ссылке:
+        <a href="prices.docx" target="_blank" style="color:var(--accentB);">Скачать prices.xls</a>
+      </p>
+    </div>
+
+    <!-- Оферта -->
+    <div>
+      <h3 style="color:var(--accentA); margin-bottom:6px;">Оферта</h3>
+      <p>Текст оферты доступен по ссылке:
+        <a href="oferta.docx" target="_blank" style="color:var(--accentB);">Скачать oferta.docx</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+
+  <nav class="bottom-nav" role="navigation">
+  <div class="nav-slot"><div class="nav-item" data-page="history"><div class="ico">📜</div><div class="label" data-i18n="nav_history">History</div></div></div>
+  <div class="nav-slot"><div class="nav-item active nav-center" data-page="shop"><div class="ico">🛒</div><div class="label" data-i18n="nav_shop">Shop</div></div></div>
+  <div class="nav-slot"><div class="nav-item" data-page="profile"><div class="ico">👤</div><div class="label" data-i18n="nav_profile">Profile</div></div></div>
+  </nav>
+</div>
+<script>
+
+// Данные о покупке
+let currentPurchase = {
+  id: null,
+  title: null,
+  price: null
+};
+
+// Популярные товары на главном экране
+const popularPackages=[
+  {id:'p1',title:'100 ⭐',price:'140 ₽',badge:'Best', product_type:'stars', quantity:100},
+  {id:'p2',title:'500 ⭐',price:'700 ₽',badge:'Popular', product_type:'stars', quantity:500},
+  {id:'p3',title:'1200 ⭐',price:'1680 ₽',badge:'Value', product_type:'stars', quantity:1200},
+  {id:'p4',title:'2500 ⭐',price:'3500 ₽',badge:'Top', product_type:'stars', quantity:2500},
+  {id:'p5',  title:'300 ⭐',   price:'420 ₽', product_type:'stars', quantity:300},
+  {id:'p6',  title:'500 ⭐',   price:'700 ₽', product_type:'stars', quantity:500}
+];
+
+// Карточки товаров на странице Stars
+const starsPackages = [
+  {id:'custom', title:'Custom ⭐', custom:true, product_type:'stars'},
+  {id:'s50',   title:'50 ⭐',    price:'70 ₽',   badge:'New', product_type:'stars', quantity:50},
+  {id:'s100',  title:'100 ⭐',   price:'140 ₽',  badge:'Best', product_type:'stars', quantity:100},
+  {id:'s200',  title:'200 ⭐',   price:'280 ₽',  badge:'Popular', product_type:'stars', quantity:200},
+  {id:'s300',  title:'300 ⭐',   price:'420 ₽', product_type:'stars', quantity:300},
+  {id:'s500',  title:'500 ⭐',   price:'700 ₽',  badge:'Popular', product_type:'stars', quantity:500},
+  {id:'s750',  title:'750 ⭐',   price:'1050 ₽', product_type:'stars', quantity:750},
+  {id:'s1000', title:'1000 ⭐',  price:'1400 ₽', badge:'Value', product_type:'stars', quantity:1000},
+  {id:'s1200', title:'1200 ⭐',  price:'1680 ₽', badge:'Value', product_type:'stars', quantity:1200},
+  {id:'s1500', title:'1500 ⭐',  price:'2100 ₽', product_type:'stars', quantity:1500},
+  {id:'s2000', title:'2000 ⭐',  price:'2800 ₽', product_type:'stars', quantity:2000},
+  {id:'s2500', title:'2500 ⭐',  price:'3500 ₽', badge:'Top', product_type:'stars', quantity:2500},
+  {id:'s5000', title:'5000 ⭐',  price:'7000 ₽', badge:'Mega', product_type:'stars', quantity:5000},
+  {id:'s10000',title:'10000 ⭐', price:'14000 ₽', badge:'Ultra', product_type:'stars', quantity:10000},
+  {id:'s20000',title:'20000 ⭐', price:'28000 ₽', badge:'Legend', product_type:'stars', quantity:20000}
+];
+
+// Карточки товаров на странице Premium
+const premiumPackagesData = [
+  {id:'prem1', title:'Premium 1 год', price:'299 ₽', badge:'Top', product_type:'premium', months:12},
+  {id:'prem3', title:'Premium 3 месяца', price:'799 ₽', badge:'Premium', product_type:'premium', months:3},
+  {id:'prem6', title:'Premium 6 месяцев', price:'1499 ₽', badge:'HOT', product_type:'premium', months:6}
+];
+
+let recipientMode = 'self';
+
+let currentLang = localStorage.getItem('lang') || 'ru'; // глобально
+
+const translations = {
+    ru: {
+      // History
+      last_purchases: "Последние покупки",
+      history_empty: "Здесь будет история операций",
+
+      // Profile
+      username: "Имя пользователя",
+      id: "ID",
+      language: "Язык",
+      referral_system: "Реферальная система",
+      your_link: "Ваша ссылка",
+      invited: "Приглашено",
+      contact_us: "Связаться с нами",
+      support: "Поддержка",
+      nav_history: "История",
+      nav_shop: "Магазин",
+      nav_profile: "Профиль",
+
+      // Shop
+      buy_stars: "Купить Stars",
+      telegram_premium: "Telegram Premium",
+      popular_packages: "Популярные пакеты",
+      players_choice: "Выбор игроков",
+
+      // Recipient
+      send_to: "Кому отправить?",
+      to_self: "Себе",
+      to_friend: "Другу",
+      enter_friend_username: "Введите @username друга",
+      next: "Далее",
+
+      // Payment
+      purchase: "Покупка",
+      pay_wallet: "Оплатить через Wallet",
+      crypto_bot: "CryptoBot",
+      sbp: "СБП (Российские банки)",
+
+      // Success
+      payment_successful: "Оплата прошла успешно! 🎉",
+      thank_you: "Спасибо за покупку.",
+      back_to_shop: "Вернуться в магазин",
+
+      // Failure
+      payment_failed: "Оплата не прошла",
+      payment_failed_desc: "К сожалению, оплата не была завершена. Попробуйте ещё раз.",
+      retry: "Попробовать снова",
+
+      // Карточки
+      buy: "Купить"
+    },
+    en: {
+      // History
+      last_purchases: "Last purchases",
+      history_empty: "History will appear here",
+
+      // Profile
+      username: "Username",
+      id: "ID",
+      language: "Language",
+      referral_system: "Referral system",
+      your_link: "Your link",
+      invited: "Invited",
+      contact_us: "Contact us",
+      support: "Support",
+      nav_history: "History",
+      nav_shop: "Shop",
+      nav_profile: "Profile",
+
+      // Shop
+      buy_stars: "Buy Stars",
+      telegram_premium: "Telegram Premium",
+      popular_packages: "Popular packages",
+      players_choice: "Players' choice",
+
+      // Recipient
+      send_to: "Send to?",
+      to_self: "Self",
+      to_friend: "Friend",
+      enter_friend_username: "Enter friend's @username",
+      next: "Next",
+
+      // Payment
+      purchase: "Purchase",
+      pay_wallet: "Pay with Wallet",
+      crypto_bot: "CryptoBot",
+      sbp: "SBP (Russian banks)",
+
+      // Success
+      payment_successful: "Payment successful! 🎉",
+      thank_you: "Thank you for your purchase.",
+      back_to_shop: "Back to shop",
+
+      // Failure
+      payment_failed: "Payment failed",
+      payment_failed_desc: "Unfortunately, payment was not completed. Try again.",
+      retry: "Try again",
+
+      // Карточки
+      buy: "Buy"
+    }
+  };
+
+// Навигация
+document.querySelectorAll('.nav-item').forEach(n=>{
+  n.addEventListener('click',()=>switchPage(n.dataset.page,n));
+  n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();n.click();}});
+});
+
+// Кнопки открытия страниц ассортимента
+document.getElementById('buy-stars').addEventListener('click',()=>{
+  switchPage('buy-stars-page');
+  renderGrid('stars-grid', starsPackages);
+});
+document.getElementById('buy-premium').addEventListener('click',()=>{
+  switchPage('buy-premium-page');
+  renderGrid('premium-grid', premiumPackagesData);
+});
+
+// Кнопка подключения кошелька
+// Кнопки оплаты
+document.getElementById("pay-wallet").addEventListener("click", () => {
+      // Пример ошибки
+    const success = true; // мок
+    if(success){
+      openSuccessPage(currentPurchase);
+    } else {
+      openFailurePage(currentPurchase);
+    }
+  });
+document.getElementById("pay-cryptobot").onclick = async () => {
+  if(!currentPurchase) return alert("Сначала выберите товар");
+
+  // Создаём заказ на бекенде
+  const userId = document.getElementById("user-id").textContent;
+  const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
+  const response = await fetch("/orders/crypto", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      user_id: userId,
+      recipient: currentPurchase.recipient || "self",
+      product_type: currentPurchase.product_type,
+      quantity: currentPurchase.quantity || null,
+      months: currentPurchase.months || null,
+      amount: currentPurchase.amount || null,
+      amount_rub: amountValue,
+      currency: "USDT" // or "TON"
+    })
+  });
+
+  const data = await response.json();
+  console.log("Создан заказ:", data);
+
+  if(data.crypto_invoice && data.crypto_invoice.result && data.crypto_invoice.result.pay_url){
+    // Открываем ссылку на оплату в Telegram
+    Telegram.WebApp.openTelegramLink(data.crypto_invoice.result.pay_url);
+
+    // Периодически проверяем статус оплаты
+    const orderId = data.order_id;
+    const interval = setInterval(async () => {
+      const statusRes = await fetch(`/orders/${orderId}`);
+      const statusData = await statusRes.json();
+      console.log("Проверка статуса:", statusData);
+
+      if(statusData.status === "paid"){
+        clearInterval(interval);
+        openSuccessPage(currentPurchase);
+      }
+    }, 5000); // каждые 5 секунд
+  } else {
+    alert("Ошибка при создании инвойса");
+  }
+};
+
+document.getElementById("pay-sbp").onclick = async () => {
+  if(!currentPurchase) return alert("Сначала выберите товар");
+
+  const userId = document.getElementById("user-id").textContent;
+  const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
+
+  // POST to backend /orders/robokassa
+  const response = await fetch("/orders/robokassa", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      user_id: userId,
+      recipient: currentPurchase.recipient || "self",
+      product_type: currentPurchase.product_type,
+      quantity: currentPurchase.quantity || null,
+      months: currentPurchase.months || null,
+      amount: currentPurchase.amount || null,
+      amount_rub: amountValue
+    })
+  });
+
+  const data = await response.json();
+  console.log("Создан заказ Robokassa:", data);
+
+  if(data.payment_url){
+    // открываем Robokassa в новой вкладке
+    window.open(data.payment_url, "_blank");
+
+    const orderId = data.order_id;
+    const interval = setInterval(async () => {
+      const s = await fetch(`/orders/${orderId}`);
+      const sd = await s.json();
+
+      if(sd.status === "paid"){
+        clearInterval(interval);
+        openSuccessPage(currentPurchase);
+      }
+      if(sd.status === "failed"){
+        clearInterval(interval);
+        openFailurePage(currentPurchase);
+      }
+    }, 5000);
+
+  } else {
+    alert("Ошибка при создании платежа: " + JSON.stringify(data));
+  }
+};
+
+// Кнопка после удачной оплаты
+document.getElementById("success-back").addEventListener("click", () => {
+  switchPage("shop");
+});
+
+// Кнопки после неудачной оплаты
+document.getElementById("retry-payment").addEventListener("click", () => {
+  if(currentPurchase) openPaymentPage(currentPurchase);
+});
+document.getElementById("go-shop").addEventListener("click", () => {
+  switchPage("shop");
+});
+
+// Кнопка обратной связи
+document.getElementById("contact-support").addEventListener("click", () => {
+  // Можно открыть Telegram-чат с ботом или ссылку на поддержку
+  window.open("https://t.me/more_stars_support", "_blank");
+});
+
+// Кнопка "Себе"
+document.getElementById('to-self').addEventListener('click', () => {
+  let selfUser = '@unknown';
+  if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
+    const user = Telegram.WebApp.initDataUnsafe.user;
+    selfUser = user.username ? `@${user.username}` : (user.first_name || 'Пользователь');
+  }
+  proceedToPayment(selfUser);
+});
+
+// Кнопка "Другу"
+document.getElementById('to-friend').addEventListener('click', () => {
+  document.getElementById('friend-input-container').style.display = 'block';
+  const input = document.getElementById('friend-username');
+  const btn = document.getElementById('friend-next-btn');
+
+  input.value = '';
+  btn.style.display = 'none';
+  input.focus();
+
+  const checkInput = () => {
+    const val = input.value.trim();
+    if (isValidTelegramUsername(val)) {
+      btn.style.display = 'block';
+    } else {
+      btn.style.display = 'none';
+    }
+  };
+
+  // Удаляем старые обработчики, чтобы не дублировать
+  input.oninput = checkInput;
+  btn.onclick = () => {
+    let val = input.value.trim();
+    if (!val.startsWith('@')) val = '@' + val;
+    proceedToPayment(val);
+  };
+});
+
+// Я не знаю что это, наверное функция рендера карточек
+function el(tag,props={},children=[]){
+  const node=document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==='class') node.className=v;
+    else if(k==='text') node.textContent=v;
+    else node.setAttribute(k,v);
+  });
+  children.forEach(c=>node.appendChild(typeof c==='string'?document.createTextNode(c):c));
+  return node;
+}
+
+// Открытия страницы оплаты
+function openPaymentPage(pkg) {
+  currentPurchase = pkg;
+
+  // Заголовок покупки
+  document.getElementById("payment-title").textContent = pkg.title;
+
+  // Сумма
+  document.getElementById("payment-amount").textContent = `${pkg.price}`;
+
+
+  switchPage("payment-page");
+}
+
+// Рендер популярных пакетов
+function renderPopular(){
+  const grid=document.getElementById('popular-grid');
+  grid.innerHTML='';
+  popularPackages.forEach((pkg,i)=>{
+    const card=el('div',{class:'pkg',role:'button',tabindex:'0','aria-label':`${pkg.title} ${pkg.price}`});
+    const top=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
+      el('div',{class:'title',text:pkg.title}),
+      el('div',{class:'badge',text:pkg.badge})
+    ]);
+  const bottom=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
+      el('div',{class:'price',text:pkg.price}),
+      el('button',{class:'btn',text:'buy','data-i18n':'buy'})
+    ]);
+    bottom.querySelector('button').addEventListener('click',()=>openRecipientPage(pkg));
+    card.appendChild(top);
+    card.appendChild(el('div',{style:'height:6px'}));
+    card.appendChild(bottom);
+    card.style.animationDelay = `${i*80}ms`;
+    grid.appendChild(card);
+  });
+  applyTranslations();
+}
+(function preloadPopular(){
+  const grid=document.getElementById('popular-grid');
+  for(let i=0;i<4;i++){
+    const s=el('div',{class:'pkg skeleton'});
+    s.style.height='86px';
+    grid.appendChild(s);
+  }
+  setTimeout(()=> renderPopular(),650);
+})();
+
+// Смена страницы пагинацией (панелью навигации)
+function switchPage(id,node){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const page=document.getElementById(id);
+  if(page) page.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.classList.remove('active'); n.setAttribute('aria-pressed','false');
+  });
+  if(node){ node.classList.add('active'); node.setAttribute('aria-pressed','true'); }
+  else{ const target=document.querySelector(`.nav-item[data-page="${id}"]`); if(target){ target.classList.add('active'); target.setAttribute('aria-pressed','true'); }}
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// Заполнение страницы Profile
+function setUserFromTelegram(){
+  try{
+    if(window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe){
+      const user=Telegram.WebApp.initDataUnsafe.user;
+      if(user){
+        const uname=document.getElementById('user-username');
+        const uid=document.getElementById('user-id');
+        const avatar=document.getElementById('user-avatar');
+        const ref=document.getElementById('ref-link');
+        uname.textContent=user.username?`@${user.username}`:(user.first_name||'User');
+        uid.textContent=user.id||'';
+        ref.textContent=`https://t.me/more_stars_bot?start=${user.id}`;
+        ref.href=`https://t.me/more_stars_bot?start=${user.id}`;
+        if(user.photo_url){
+          const i=new Image();
+          i.onload=()=>{ avatar.src=user.photo_url; avatar.classList.remove('skeleton'); };
+          i.onerror=()=>{ avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=U'; avatar.classList.remove('skeleton'); };
+          i.src=user.photo_url;
+        } else { avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=U'; avatar.classList.remove('skeleton'); }
+      }
+    } else {
+      const avatar=document.getElementById('user-avatar');
+      document.getElementById('user-username').textContent='@demo_user';
+      document.getElementById('user-id').textContent='123456';
+      document.getElementById('ref-link').textContent='https://t.me/more_stars_bot?start=123456';
+      document.getElementById('ref-link').href='https://t.me/more_stars_bot?start=123456';
+      avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=D'; avatar.classList.remove('skeleton');
+    }
+  }catch(e){ console.warn('Telegram init read error',e); }
+}
+setUserFromTelegram();
+
+function formatOrderProduct(order) {
+  if (order.product_type === "stars" && order.quantity) {
+    return `Stars x${order.quantity}`;
+  }
+  if (order.product_type === "premium" && order.months) {
+    return `Premium ${order.months} month(s)`;
+  }
+  if (order.product_type === "ads" && order.amount) {
+    return `Ads amount ${order.amount}`;
+  }
+  return order.product_type || "Unknown";
+}
+
+async function loadHistory(userId) {
+  const loader = document.getElementById("history-loader");
+  const empty = document.getElementById("history-empty");
+  const list = document.getElementById("history-list");
+
+  loader.style.display = "block";
+  empty.style.display = "none";
+  list.innerHTML = "";
+
+  try {
+    const response = await fetch(`/orders/history?user_id=${userId}`);
+    const data = await response.json();
+
+    loader.style.display = "none";
+
+    if (data.orders && data.orders.length > 0) {
+      data.orders.forEach(order => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.style.marginBottom = "8px";
+
+        // Цвет статуса
+        let color = "gray";
+        if(order.status === "paid") color = "green";
+        else if(order.status === "failed") color = "red";
+
+        card.innerHTML = `
+          <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
+          <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}</div>
+        `;
+        list.appendChild(card);
+      });
+    } else {
+      empty.style.display = "block";
+    }
+  } catch (err) {
+    loader.style.display = "none";
+    console.error("Ошибка загрузки истории:", err);
+  }
+}
+
+// Заполнение страницы History
+function loadUserHistory() {
+  try {
+    if(window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe){
+      const userId = Telegram.WebApp.initDataUnsafe.user.id;
+      if(userId){
+        loadHistory(userId);
+      }
+    }
+  } catch(e){ console.warn('Telegram init read error', e); }
+}
+loadUserHistory();
+
+// Рендер Stars и Premium
+function renderGrid(gridId, packages){
+  const grid = document.getElementById(gridId);
+  grid.innerHTML = '';
+
+  packages.forEach((pkg, i) => {
+    const card = el('div', {
+      class: 'pkg',
+      role: 'button',
+      tabindex: '0',
+      'aria-label': `${pkg.title} ${pkg.price || ''}`
+    });
+    card.style.animationDelay = `${i * 80}ms`;
+
+    if(pkg.custom){
+      // Кастомная карточка
+      const title = el('div', { class: 'title', text: pkg.title });
+      const input = el('input', {
+        type: 'number',
+        class: 'qty',
+        id: 'stars-input-custom',
+        placeholder: '50–20000',
+        min: 50,
+        max: 20000
+      });
+      const btn = el('button', { class: 'btn', text: 'buy', 'data-i18n': 'buy' });
+
+      // Центрирование кнопки
+      btn.style.alignSelf = 'center';
+
+      // Событие покупки
+      btn.addEventListener('click', () => {
+        let val = parseInt(input.value);
+        if (isNaN(val) || val < 50) val = 50;
+        if (val > 20000) val = 20000;
+        input.value = val;
+        openRecipientPage({
+          id: "custom",
+          title: `${val} ⭐`,
+          price: val + " ₽",
+          product_type: "stars",
+          quantity: val
+        });
+      });
+
+      input.addEventListener('blur', () => {
+        let val = parseInt(input.value);
+        if (isNaN(val) || val < 50) val = 50;
+        if (val > 20000) val = 20000;
+        input.value = val;
+      });
+
+      card.appendChild(title);
+      card.appendChild(input);
+      card.appendChild(btn);
+      card.classList.add('custom');
+
+      card.style.gridColumn = 'span 2';
+
+    } else {
+      // Обычные карточки
+      const topChildren = [el('div', { class: 'title', text: pkg.title })];
+      if(pkg.badge) topChildren.push(el('div', { class: 'badge', text: pkg.badge }));
+
+      const top = el('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, topChildren);
+
+      const bottom = el('div', { class: 'bottom-row' }, [
+        el('div', { class: 'price', text: pkg.price }),
+        el('button', { class: 'btn', text: 'buy', 'data-i18n': 'buy' })
+      ]);
+
+      // Добавляем обработчик кнопки
+      bottom.querySelector('button').addEventListener('click', () => {
+        openRecipientPage(pkg);
+      });
+
+      card.appendChild(top);
+      card.appendChild(el('div', { style: 'height:6px' }));
+      card.appendChild(bottom);
+    }
+
+    grid.appendChild(card);
+  });
+  applyTranslations();
+}
+
+// Функция открытия страницы получателя
+function openRecipientPage(pkg) {
+  currentPurchase = { ...pkg };
+  document.getElementById('friend-input-container').style.display = 'none';
+  switchPage("recipient-page");
+}
+
+function isValidTelegramUsername(val) {
+  if (!val) return false;
+  val = val.startsWith('@') ? val.slice(1) : val;
+  return /^[a-zA-Z0-9_]{3,32}$/.test(val);
+}
+
+function proceedToPayment(recipient) {
+  currentPurchase.recipient = recipient;
+  openPaymentPage(currentPurchase);
+}
+
+// Вызывается при успешной покупке
+function openSuccessPage(pkg) {
+  if(!pkg || !pkg.title) {
+    // Если пакета нет — просто редирект без названия
+    window.location.href = '/success.html';
+    return;
+  }
+  // Кодируем название пакета для URL
+  const pkgTitle = encodeURIComponent(pkg.title);
+  window.location.href = `/success.html?title=${pkgTitle}`;
+}
+
+// Вызывается при ошибке оплаты
+function openFailurePage(pkg) {
+  if(pkg && pkg.title){
+    const pkgTitle = encodeURIComponent(pkg.title);
+    window.location.href = `/failure.html?title=${pkgTitle}`;
+  } else {
+    window.location.href = `/failure.html`;
+  }
+}
+
+function applyTranslations() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (translations[currentLang] && translations[currentLang][key]) {
+      el.textContent = translations[currentLang][key];
+    }
+  });
+}
+
+function setLanguage(lang) {
+  currentLang = translations[lang] ? lang : 'ru';
+  document.documentElement.lang = currentLang;
+  applyTranslations();
+}
+
+async function initWebApp() {
+  const userId = document.getElementById("user-id").textContent;
+
+  try {
+    const res = await fetch(`/orders/last?user_id=${userId}`);
+    const data = await res.json();
+
+    if (data.show_success_page) {
+      // Показываем страницу успешной оплаты
+      openSuccessPage({ title: formatOrderProduct(data) });
+    } else if (data.show_failure_page) {
+      // Показываем страницу неудачной оплаты
+      openFailurePage({ title: formatOrderProduct(data) });
+    } else {
+      // Обычная стартовая страница
+      switchPage("shop");
+    }
+  } catch (err) {
+    console.error("Ошибка при инициализации WebApp:", err);
+    switchPage("shop"); // fallback
+  }
+}
+// Вызываем initWebApp сразу после загрузки HTML
+window.addEventListener("DOMContentLoaded", async () => {
+
+  const isTelegram = !!window.Telegram?.WebApp?.initDataUnsafe?.user;
+
+  ['profile','history','payment-page'].forEach(id => {
+    const page = document.getElementById(id);
+    if (!page) return;
+
+    page.querySelector('.page-content').style.display = isTelegram ? 'block' : 'none';
+    page.querySelector('.auth-gate-inline').style.display = isTelegram ? 'none' : 'block';
+  });
+  const footer = document.getElementById('web-footer');
+  if (isTelegram) {
+    footer.style.display = 'none';
+  } else {
+    footer.style.display = 'block';
+  }
+
+  // Остальной контент сайта всегда показываем
+  if (isTelegram || !['profile','history','payment-page'].includes(currentPage)) {
+    document.getElementById("app-content").style.display = "block";
+  }
+
+  // --- Инициализация WebApp ---
+  const userId = document.getElementById("user-id").textContent;
+  try {
+    const res = await fetch(`/orders/last?user_id=${userId}`);
+    const data = await res.json();
+
+    if (data.show_success_page) {
+      openSuccessPage({title: formatOrderProduct(data)});
+    } else if (data.show_failure_page) {
+      openFailurePage({title: formatOrderProduct(data)});
+    } else {
+      switchPage("shop");
+    }
+  } catch (err) {
+    console.error("Ошибка при инициализации WebApp:", err);
+    switchPage("shop");
+  }
+
+  // --- Селектор языка ---
+  const langSelect = document.getElementById('lang-select');
+  langSelect.addEventListener('change', () => {
+    const lang = langSelect.value;
+    setLanguage(lang);
+    localStorage.setItem('lang', lang);
+  });
+
+  const savedLang = localStorage.getItem('lang') || currentLang;
+  langSelect.value = savedLang;
+  setLanguage(savedLang);
+
+
+
+});
+
+
+</script>
+</body>
+</html>
