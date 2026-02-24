@@ -44,7 +44,7 @@ class OrderCreateBase(BaseModel):
     amount: float | None = None
     amount_rub: float
 
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_product_fields(cls, values):
         product_type = (values.get("product_type") or "").lower()
         values["product_type"] = product_type
