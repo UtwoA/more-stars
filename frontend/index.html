@@ -868,6 +868,10 @@ function switchPage(id,node){
   if(node){ node.classList.add('active'); node.setAttribute('aria-pressed','true'); }
   else{ const target=document.querySelector(`.nav-item[data-page="${id}"]`); if(target){ target.classList.add('active'); target.setAttribute('aria-pressed','true'); }}
   window.scrollTo({top:0,behavior:'smooth'});
+
+  if (id === "history") {
+    loadUserHistory();
+  }
 }
 
 // Заполнение страницы Profile
@@ -961,12 +965,20 @@ async function loadHistory(userId) {
 // Заполнение страницы History
 function loadUserHistory() {
   try {
-    if(window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe){
-      const userId = Telegram.WebApp.initDataUnsafe.user.id;
-      if(userId){
-        loadHistory(userId);
+    let userId = null;
+
+    if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+      userId = String(window.Telegram.WebApp.initDataUnsafe.user.id);
+    }
+
+    if (!userId) {
+      const fallbackId = (document.getElementById("user-id")?.textContent || "").trim();
+      if (fallbackId && fallbackId !== "—") {
+        userId = fallbackId;
       }
     }
+
+    if (userId) loadHistory(userId);
   } catch(e){ console.warn('Telegram init read error', e); }
 }
 loadUserHistory();
