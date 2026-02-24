@@ -516,33 +516,46 @@ let currentPurchase = {
   price: null
 };
 
+function getStarsRate(quantity) {
+  return quantity >= 5000 ? 1.48 : 1.5;
+}
+
+function formatRubPrice(value) {
+  const normalized = Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+  return `${normalized} ₽`;
+}
+
+function starsPrice(quantity) {
+  return formatRubPrice(quantity * getStarsRate(quantity));
+}
+
 // Популярные товары на главном экране
 const popularPackages=[
-  {id:'p1',title:'100 ⭐',price:'140 ₽',badge:'Best', product_type:'stars', quantity:100},
-  {id:'p2',title:'500 ⭐',price:'700 ₽',badge:'Popular', product_type:'stars', quantity:500},
-  {id:'p3',title:'1200 ⭐',price:'1680 ₽',badge:'Value', product_type:'stars', quantity:1200},
-  {id:'p4',title:'2500 ⭐',price:'3500 ₽',badge:'Top', product_type:'stars', quantity:2500},
-  {id:'p5',  title:'300 ⭐',   price:'420 ₽', product_type:'stars', quantity:300},
-  {id:'p6',  title:'500 ⭐',   price:'700 ₽', product_type:'stars', quantity:500}
+  {id:'p1',title:'100 ⭐',price:starsPrice(100),badge:'Best', product_type:'stars', quantity:100},
+  {id:'p2',title:'500 ⭐',price:starsPrice(500),badge:'Popular', product_type:'stars', quantity:500},
+  {id:'p3',title:'1200 ⭐',price:starsPrice(1200),badge:'Value', product_type:'stars', quantity:1200},
+  {id:'p4',title:'2500 ⭐',price:starsPrice(2500),badge:'Top', product_type:'stars', quantity:2500},
+  {id:'p5',  title:'300 ⭐',   price:starsPrice(300), product_type:'stars', quantity:300},
+  {id:'p6',  title:'500 ⭐',   price:starsPrice(500), product_type:'stars', quantity:500}
 ];
 
 // Карточки товаров на странице Stars
 const starsPackages = [
   {id:'custom', title:'Custom ⭐', custom:true, product_type:'stars'},
-  {id:'s50',   title:'50 ⭐',    price:'70 ₽',   badge:'New', product_type:'stars', quantity:50},
-  {id:'s100',  title:'100 ⭐',   price:'140 ₽',  badge:'Best', product_type:'stars', quantity:100},
-  {id:'s200',  title:'200 ⭐',   price:'280 ₽',  badge:'Popular', product_type:'stars', quantity:200},
-  {id:'s300',  title:'300 ⭐',   price:'420 ₽', product_type:'stars', quantity:300},
-  {id:'s500',  title:'500 ⭐',   price:'700 ₽',  badge:'Popular', product_type:'stars', quantity:500},
-  {id:'s750',  title:'750 ⭐',   price:'1050 ₽', product_type:'stars', quantity:750},
-  {id:'s1000', title:'1000 ⭐',  price:'1400 ₽', badge:'Value', product_type:'stars', quantity:1000},
-  {id:'s1200', title:'1200 ⭐',  price:'1680 ₽', badge:'Value', product_type:'stars', quantity:1200},
-  {id:'s1500', title:'1500 ⭐',  price:'2100 ₽', product_type:'stars', quantity:1500},
-  {id:'s2000', title:'2000 ⭐',  price:'2800 ₽', product_type:'stars', quantity:2000},
-  {id:'s2500', title:'2500 ⭐',  price:'3500 ₽', badge:'Top', product_type:'stars', quantity:2500},
-  {id:'s5000', title:'5000 ⭐',  price:'7000 ₽', badge:'Mega', product_type:'stars', quantity:5000},
-  {id:'s10000',title:'10000 ⭐', price:'14000 ₽', badge:'Ultra', product_type:'stars', quantity:10000},
-  {id:'s20000',title:'20000 ⭐', price:'28000 ₽', badge:'Legend', product_type:'stars', quantity:20000}
+  {id:'s50',   title:'50 ⭐',    price:starsPrice(50),   badge:'New', product_type:'stars', quantity:50},
+  {id:'s100',  title:'100 ⭐',   price:starsPrice(100),  badge:'Best', product_type:'stars', quantity:100},
+  {id:'s200',  title:'200 ⭐',   price:starsPrice(200),  badge:'Popular', product_type:'stars', quantity:200},
+  {id:'s300',  title:'300 ⭐',   price:starsPrice(300), product_type:'stars', quantity:300},
+  {id:'s500',  title:'500 ⭐',   price:starsPrice(500),  badge:'Popular', product_type:'stars', quantity:500},
+  {id:'s750',  title:'750 ⭐',   price:starsPrice(750), product_type:'stars', quantity:750},
+  {id:'s1000', title:'1000 ⭐',  price:starsPrice(1000), badge:'Value', product_type:'stars', quantity:1000},
+  {id:'s1200', title:'1200 ⭐',  price:starsPrice(1200), badge:'Value', product_type:'stars', quantity:1200},
+  {id:'s1500', title:'1500 ⭐',  price:starsPrice(1500), product_type:'stars', quantity:1500},
+  {id:'s2000', title:'2000 ⭐',  price:starsPrice(2000), product_type:'stars', quantity:2000},
+  {id:'s2500', title:'2500 ⭐',  price:starsPrice(2500), badge:'Top', product_type:'stars', quantity:2500},
+  {id:'s5000', title:'5000 ⭐',  price:starsPrice(5000), badge:'Mega', product_type:'stars', quantity:5000},
+  {id:'s10000',title:'10000 ⭐', price:starsPrice(10000), badge:'Ultra', product_type:'stars', quantity:10000},
+  {id:'s20000',title:'20000 ⭐', price:starsPrice(20000), badge:'Legend', product_type:'stars', quantity:20000}
 ];
 
 // Карточки товаров на странице Premium
@@ -997,7 +1010,7 @@ function renderGrid(gridId, packages){
         openRecipientPage({
           id: "custom",
           title: `${val} ⭐`,
-          price: val + " ₽",
+          price: starsPrice(val),
           product_type: "stars",
           quantity: val
         });
