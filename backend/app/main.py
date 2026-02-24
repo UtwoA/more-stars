@@ -16,7 +16,7 @@ from .crypto import convert_rub_to_crypto
 from .database import SessionLocal, Base, engine
 from .models import Order
 from .utils import now_msk
-from .robokassa_service import generate_payment_link, verify_result_signature
+from .robokassa_service import verify_result_signature
 from .robynhood import send_purchase_to_robynhood
 from bot import send_user_message
 
@@ -182,20 +182,7 @@ async def create_order_crypto(order: CryptoOrderCreate):
 
 @app.post("/orders/robokassa")
 async def create_order_robokassa(order: RobokassaOrderCreate):
-    db = SessionLocal()
-    try:
-        db_order = _create_order(db, order, provider="robokassa", currency="RUB")
-        payment_url = generate_payment_link(db_order)
-        db_order.payment_url = payment_url
-        db.commit()
-
-        return {
-            "order_id": db_order.order_id,
-            "amount_rub": db_order.amount_rub,
-            "payment_url": payment_url
-        }
-    finally:
-        db.close()
+    raise HTTPException(status_code=503, detail="SBP/Robokassa payment is temporarily unavailable")
 
 
 @app.post("/webhook/crypto")
