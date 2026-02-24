@@ -676,95 +676,103 @@ document.getElementById('buy-premium').addEventListener('click',()=>{
 
 // Кнопки оплаты
 document.getElementById("pay-cryptobot").onclick = async () => {
-  if(!currentPurchase) return alert("Сначала выберите товар");
+  if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
 
-  // Создаём заказ на бекенде
-  const userId = document.getElementById("user-id").textContent;
-  const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
-  const response = await fetch("/orders/crypto", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      user_id: userId,
-      recipient: currentPurchase.recipient || "self",
-      product_type: currentPurchase.product_type,
-      quantity: currentPurchase.quantity || null,
-      months: currentPurchase.months || null,
-      amount: currentPurchase.amount || null,
-      amount_rub: amountValue,
-      currency: "USDT" // or "TON"
-    })
-  });
+  try {
+    const userId = document.getElementById("user-id").textContent || "0";
+    const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
+    const response = await fetch("/orders/crypto", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        user_id: userId,
+        recipient: currentPurchase.recipient || "self",
+        product_type: currentPurchase.product_type,
+        quantity: currentPurchase.quantity || null,
+        months: currentPurchase.months || null,
+        amount: currentPurchase.amount || null,
+        amount_rub: amountValue,
+        currency: "USDT"
+      })
+    });
 
-  const data = await response.json();
-  console.log("Создан заказ:", data);
+    const data = await response.json();
+    console.log("Создан заказ:", data);
 
-  if(data.crypto_invoice && data.crypto_invoice.result && data.crypto_invoice.result.pay_url){
-    // Открываем ссылку на оплату в Telegram
-    Telegram.WebApp.openTelegramLink(data.crypto_invoice.result.pay_url);
-
-    // Периодически проверяем статус оплаты
-    const orderId = data.order_id;
-    const interval = setInterval(async () => {
-      const statusRes = await fetch(`/orders/${orderId}`);
-      const statusData = await statusRes.json();
-      console.log("Проверка статуса:", statusData);
-
-      if(statusData.status === "paid"){
-        clearInterval(interval);
-        openSuccessPage(currentPurchase);
+    const payUrl = data?.crypto_invoice?.result?.pay_url;
+    if (payUrl) {
+      if (window.Telegram?.WebApp?.openTelegramLink) {
+        window.Telegram.WebApp.openTelegramLink(payUrl);
+      } else {
+        window.open(payUrl, "_blank");
       }
-    }, 5000); // каждые 5 секунд
-  } else {
-    alert("Ошибка при создании инвойса");
+
+      const orderId = data.order_id;
+      const interval = setInterval(async () => {
+        const statusRes = await fetch(`/orders/${orderId}`);
+        const statusData = await statusRes.json();
+        console.log("Проверка статуса:", statusData);
+
+        if (statusData.status === "paid") {
+          clearInterval(interval);
+          openSuccessPage(currentPurchase);
+        }
+      }, 5000);
+    } else {
+      alert("Ошибка при создании инвойса");
+    }
+  } catch (err) {
+    console.error("Ошибка оплаты через CryptoBot:", err);
+    alert("Не удалось создать платеж. Попробуйте еще раз.");
   }
 };
 
 document.getElementById("pay-sbp").onclick = async () => {
-  if(!currentPurchase) return alert("Сначала выберите товар");
+  if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
 
-  const userId = document.getElementById("user-id").textContent;
-  const amountValue = parseFloat(currentPurchase.price.replace(/[^0-9.]/g,""));
+  try {
+    const userId = document.getElementById("user-id").textContent || "0";
+    const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
+    const response = await fetch("/orders/robokassa", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        user_id: userId,
+        recipient: currentPurchase.recipient || "self",
+        product_type: currentPurchase.product_type,
+        quantity: currentPurchase.quantity || null,
+        months: currentPurchase.months || null,
+        amount: currentPurchase.amount || null,
+        amount_rub: amountValue
+      })
+    });
 
-  // POST to backend /orders/robokassa
-  const response = await fetch("/orders/robokassa", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      user_id: userId,
-      recipient: currentPurchase.recipient || "self",
-      product_type: currentPurchase.product_type,
-      quantity: currentPurchase.quantity || null,
-      months: currentPurchase.months || null,
-      amount: currentPurchase.amount || null,
-      amount_rub: amountValue
-    })
-  });
+    const data = await response.json();
+    console.log("Создан заказ Robokassa:", data);
 
-  const data = await response.json();
-  console.log("Создан заказ Robokassa:", data);
+    if (data.payment_url) {
+      window.open(data.payment_url, "_blank");
 
-  if(data.payment_url){
-    // открываем Robokassa в новой вкладке
-    window.open(data.payment_url, "_blank");
+      const orderId = data.order_id;
+      const interval = setInterval(async () => {
+        const s = await fetch(`/orders/${orderId}`);
+        const sd = await s.json();
 
-    const orderId = data.order_id;
-    const interval = setInterval(async () => {
-      const s = await fetch(`/orders/${orderId}`);
-      const sd = await s.json();
-
-      if(sd.status === "paid"){
-        clearInterval(interval);
-        openSuccessPage(currentPurchase);
-      }
-      if(sd.status === "failed"){
-        clearInterval(interval);
-        openFailurePage(currentPurchase);
-      }
-    }, 5000);
-
-  } else {
-    alert("Ошибка при создании платежа: " + JSON.stringify(data));
+        if (sd.status === "paid") {
+          clearInterval(interval);
+          openSuccessPage(currentPurchase);
+        }
+        if (sd.status === "failed") {
+          clearInterval(interval);
+          openFailurePage(currentPurchase);
+        }
+      }, 5000);
+    } else {
+      alert("Ошибка при создании платежа: " + JSON.stringify(data));
+    }
+  } catch (err) {
+    console.error("Ошибка оплаты через СБП:", err);
+    alert("Не удалось создать платеж. Попробуйте еще раз.");
   }
 };
 
