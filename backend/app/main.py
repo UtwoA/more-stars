@@ -25,6 +25,7 @@ load_dotenv()
 
 CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://testnet-pay.crypt.bot/api/createInvoice")
 CRYPTOBOT_TOKEN = os.getenv("CRYPTOBOT_TOKEN")
+CRYPTO_PAY_GET_INVOICES_URL = f"{CRYPTO_PAY_API_URL.rsplit('/', 1)[0]}/getInvoices"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -117,6 +118,43 @@ async def _create_crypto_invoice(amount: float, currency: str, order_id: str, re
         r = await client.post(CRYPTO_PAY_API_URL, json=payload, headers=headers, timeout=15)
         r.raise_for_status()
         return r.json()
+
+
+async def _sync_crypto_order_status(order: Order, db) -> None:
+    # Fallback: if webhook is not received, sync invoice status directly from Crypto Pay API.
+    if order.payment_provider != "crypto" or order.status in ("paid", "failed"):
+        return
+    if not order.payment_invoice_id or not CRYPTOBOT_TOKEN:
+        return
+
+    headers = {"Crypto-Pay-API-Token": CRYPTOBOT_TOKEN}
+    params = {"invoice_ids": str(order.payment_invoice_id)}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(CRYPTO_PAY_GET_INVOICES_URL, params=params, headers=headers, timeout=15)
+            r.raise_for_status()
+            payload = r.json()
+    except Exception:
+        logger.exception("[CRYPTO] Failed to sync invoice status for order %s", order.order_id)
+        return
+
+    items = payload.get("result", {}).get("items") or []
+    if not items:
+        return
+
+    status = items[0].get("status")
+    if status == "paid":
+        order.status = "paid"
+        db.commit()
+        try:
+            await send_purchase_to_robynhood(order)
+            await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
+        except Exception:
+            logger.exception("[ROBYNHOOD] Failed to send purchase")
+    elif status in ("expired", "failed"):
+        order.status = "failed"
+        db.commit()
 
 
 def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | None = None) -> Order:
@@ -262,6 +300,7 @@ async def order_status(order_id: str):
         if not order:
             return {"error": "Order not found"}
 
+        await _sync_crypto_order_status(order, db)
         _check_order_expired(order, db)
         return {"order_id": order.order_id, "status": order.status}
     finally:
@@ -282,6 +321,7 @@ async def last_order_status(user_id: str = Query(...)):
         if not order:
             return {"status": "none"}
 
+        await _sync_crypto_order_status(order, db)
         result = {
             "order_id": order.order_id,
             "status": order.status,
