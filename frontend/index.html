@@ -102,6 +102,13 @@
       flex-wrap: nowrap;       /* не переносить элементы */
       gap: 8px;
     }
+    .pkg > .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 28px;
+      gap: 8px;
+    }
 
     .pkg .price {
       white-space: nowrap;     /* чтобы "₽" не переносился */
@@ -865,7 +872,7 @@ function renderPopular(){
     const card=el('div',{class:'pkg',role:'button',tabindex:'0','aria-label':`${pkg.title} ${pkg.price}`});
     const topChildren = [el('div',{class:'title',text:pkg.title})];
     if (pkg.badge) topChildren.push(el('div',{class:'badge',text:pkg.badge}));
-    const top=el('div',{style:'display:flex;justify-content:space-between;align-items:center'}, topChildren);
+    const top=el('div',{class:'top-row'}, topChildren);
   const bottom=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
       el('div',{class:'price',text:pkg.price}),
       el('button',{class:'btn',text:'buy','data-i18n':'buy'})
@@ -1062,7 +1069,7 @@ function renderGrid(gridId, packages){
       const topChildren = [el('div', { class: 'title', text: pkg.title })];
       if(pkg.badge) topChildren.push(el('div', { class: 'badge', text: pkg.badge }));
 
-      const top = el('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, topChildren);
+      const top = el('div', { class: 'top-row' }, topChildren);
 
       const bottom = el('div', { class: 'bottom-row' }, [
         el('div', { class: 'price', text: pkg.price }),
