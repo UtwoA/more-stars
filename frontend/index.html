@@ -731,6 +731,10 @@ document.getElementById("pay-cryptobot").onclick = async () => {
           clearInterval(interval);
           openSuccessPage(currentPurchase);
         }
+        if (statusData.status === "failed") {
+          clearInterval(interval);
+          openFailurePage(currentPurchase);
+        }
       }, 5000);
     } else {
       alert("Ошибка при создании инвойса");

@@ -152,6 +152,8 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
             await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
         except Exception:
             logger.exception("[ROBYNHOOD] Failed to send purchase")
+            order.status = "failed"
+            db.commit()
     elif status in ("expired", "failed"):
         order.status = "failed"
         db.commit()
@@ -256,6 +258,8 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
                 await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
             except Exception:
                 logger.exception("[ROBYNHOOD] Failed to send purchase")
+                order.status = "failed"
+                db.commit()
     finally:
         db.close()
 
@@ -286,6 +290,8 @@ async def robokassa_webhook(
                 await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
             except Exception:
                 logger.exception("[ROBYNHOOD] Failed to send purchase")
+                order.status = "failed"
+                db.commit()
 
         return PlainTextResponse(content=f"OK{InvId}", status_code=200)
     finally:
