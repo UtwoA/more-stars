@@ -422,7 +422,6 @@
             </div>
 
             <div class="actions">
-              <button class="btn" id="pay-wallet" data-i18n="pay_wallet">Оплатить через Wallet</button>
               <button class="btn" id="pay-cryptobot"
                       style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
                 CryptoBot
@@ -592,7 +591,6 @@ const translations = {
 
       // Payment
       purchase: "Покупка",
-      pay_wallet: "Оплатить через Wallet",
       crypto_bot: "CryptoBot",
       sbp: "СБП (Российские банки)",
 
@@ -642,7 +640,6 @@ const translations = {
 
       // Payment
       purchase: "Purchase",
-      pay_wallet: "Pay with Wallet",
       crypto_bot: "CryptoBot",
       sbp: "SBP (Russian banks)",
 
@@ -677,17 +674,7 @@ document.getElementById('buy-premium').addEventListener('click',()=>{
   renderGrid('premium-grid', premiumPackagesData);
 });
 
-// Кнопка подключения кошелька
 // Кнопки оплаты
-document.getElementById("pay-wallet").addEventListener("click", () => {
-      // Пример ошибки
-    const success = true; // мок
-    if(success){
-      openSuccessPage(currentPurchase);
-    } else {
-      openFailurePage(currentPurchase);
-    }
-  });
 document.getElementById("pay-cryptobot").onclick = async () => {
   if(!currentPurchase) return alert("Сначала выберите товар");
 
