@@ -134,7 +134,8 @@
     .pkg .price{ color:var(--muted); font-size:13px; }
 
     .pkg .badge{
-      display:inline-flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px;
+      display:inline-flex; align-items:center; justify-content:center; text-align:center; line-height:1;
+      gap:8px; padding:6px 8px; border-radius:10px;
       font-weight:700; font-size:13px; color:#fff;
       background: linear-gradient(90deg, rgba(42,139,242,0.98), rgba(139,92,255,0.96));
       width:max-content;
@@ -560,9 +561,9 @@ const starsPackages = [
 
 // Карточки товаров на странице Premium
 const premiumPackagesData = [
-  {id:'prem1', title:'Premium 1 год', price:'299 ₽', badge:'Top', product_type:'premium', months:12},
-  {id:'prem3', title:'Premium 3 месяца', price:'799 ₽', badge:'Premium', product_type:'premium', months:3},
-  {id:'prem6', title:'Premium 6 месяцев', price:'1499 ₽', badge:'HOT', product_type:'premium', months:6}
+  {id:'prem1', title:'Premium 1 год', price:'2499 ₽', badge:'Top', product_type:'premium', months:12},
+  {id:'prem3', title:'Premium 3 месяца', price:'999 ₽', badge:'Premium', product_type:'premium', months:3},
+  {id:'prem6', title:'Premium 6 месяцев', price:'1399 ₽', badge:'HOT', product_type:'premium', months:6}
 ];
 
 let recipientMode = 'self';
