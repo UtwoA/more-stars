@@ -437,9 +437,9 @@
             </div>
             <div id="payment-link" style="display:none;margin-top:12px;font-size:12px;">
               <div id="payment-method-label" style="color:var(--muted);margin-bottom:6px;">Выбранный способ оплаты: —</div>
-              <button id="payment-link-btn" class="btn secondary" style="width:100%;" type="button">
+              <a id="payment-link-btn" class="btn secondary" style="width:100%;text-decoration:none;text-align:center;" href="#" target="_blank" rel="noopener">
                 Перейти к оплате
-              </button>
+              </a>
             </div>
           </div>
           <img src="paymentLoading.gif"
@@ -824,8 +824,12 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
       const paymentMethodLabelEl = document.getElementById("payment-method-label");
       if (paymentLink && paymentLinkBtn && paymentMethodLabelEl) {
         paymentMethodLabelEl.textContent = `Выбранный способ оплаты: ${paymentLabel}`;
-        paymentLinkBtn.onclick = () => {
-          window.location.href = payUrl;
+        paymentLinkBtn.href = payUrl;
+        paymentLinkBtn.onclick = (e) => {
+          if (window.Telegram?.WebApp?.openTelegramLink) {
+            e.preventDefault();
+            window.Telegram.WebApp.openTelegramLink(payUrl);
+          }
         };
         paymentLink.style.display = "block";
       } else {
