@@ -89,7 +89,7 @@ async def _get_fragment_hash(cookies: dict) -> str:
     async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         r = await client.get(f"{FRAGMENT_BASE_URL}/stars/buy", cookies=cookies, timeout=15)
         r.raise_for_status()
-        text = r.text
+        text = r.text.replace("\\/", "/")
         match = re.search(r"api\\?hash=([a-zA-Z0-9]+)", text)
         if not match:
             match = re.search(r"hash\\s*[:=]\\s*\"([a-zA-Z0-9]+)\"", text)
