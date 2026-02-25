@@ -19,3 +19,7 @@ async def send_user_message(chat_id: int, product_name: str):
         f"<b><a href=\"{link}\">Купить еще</a></b>"
     )
     await bot.send_message(chat_id=chat_id, text=text)
+
+
+async def send_admin_message(chat_id: int, text: str):
+    await bot.send_message(chat_id=chat_id, text=text)

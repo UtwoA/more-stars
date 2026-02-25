@@ -1,12 +1,12 @@
 import asyncio
 import hashlib
 import hmac
-from urllib.parse import parse_qsl, unquote_plus
 import json
 import logging
 import os
 import uuid
-from datetime import timedelta
+from datetime import timedelta, datetime, time
+from urllib.parse import parse_qsl, unquote_plus
 
 import httpx
 from dotenv import load_dotenv
@@ -23,7 +23,7 @@ from .models import Order
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
-from bot import send_user_message
+from bot import send_user_message, send_admin_message
 
 
 load_dotenv()
@@ -43,6 +43,8 @@ PLATEGA_WEBHOOK_IP_ALLOWLIST = {
 }
 PLATEGA_WEBHOOK_TOKEN = os.getenv("PLATEGA_WEBHOOK_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+MINI_APP_URL = os.getenv("MINI_APP_URL")
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -78,6 +80,7 @@ with engine.begin() as conn:
     )
 
 MSK = ZoneInfo("Europe/Moscow")
+_last_app_up: bool | None = None
 
 
 class OrderCreateBase(BaseModel):
@@ -249,6 +252,91 @@ async def _safe_send_user_message(order: Order) -> None:
     await send_user_message(chat_id=chat_id, product_name=_product_label(order))
 
 
+async def _notify_admin(text: str) -> None:
+    if not ADMIN_CHAT_ID:
+        return
+    try:
+        await send_admin_message(chat_id=int(ADMIN_CHAT_ID), text=text)
+    except Exception:
+        logger.exception("[ADMIN] Failed to send admin message")
+
+
+async def _send_daily_report() -> None:
+    if not ADMIN_CHAT_ID:
+        return
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        start = datetime.combine(now.date(), time(0, 0), tzinfo=MSK)
+        end = start + timedelta(days=1)
+
+        paid = db.query(Order).filter(
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        ).all()
+        failed = db.query(Order).filter(
+            Order.status == "failed",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        ).count()
+
+        total_paid = sum((o.amount_rub or 0) for o in paid)
+        text = (
+            "📊 Daily report\n"
+            f"date={start.date().isoformat()}\n"
+            f"paid_orders={len(paid)}\n"
+            f"paid_total_rub={total_paid:.2f}\n"
+            f"failed_orders={failed}"
+        )
+        await _notify_admin(text)
+    finally:
+        db.close()
+
+
+async def _daily_report_loop() -> None:
+    while True:
+        now = now_msk()
+        tomorrow = now.date() + timedelta(days=1)
+        next_midnight = datetime.combine(tomorrow, time(0, 0), tzinfo=MSK)
+        sleep_seconds = (next_midnight - now).total_seconds()
+        await asyncio.sleep(max(1, sleep_seconds))
+        await _send_daily_report()
+
+
+async def _check_mini_app() -> None:
+    global _last_app_up
+    if not MINI_APP_URL:
+        return
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(MINI_APP_URL, timeout=15)
+        is_up = r.status_code < 400
+    except Exception:
+        is_up = False
+
+    if _last_app_up is None:
+        _last_app_up = is_up
+        return
+
+    if is_up != _last_app_up:
+        status = "UP ✅" if is_up else "DOWN ❌"
+        await _notify_admin(f"🔔 Mini app status changed: {status}\nurl={MINI_APP_URL}")
+        _last_app_up = is_up
+
+
+async def _availability_loop() -> None:
+    while True:
+        await _check_mini_app()
+        await asyncio.sleep(30 * 60)
+
+
+@app.on_event("startup")
+async def _startup_tasks():
+    asyncio.create_task(_daily_report_loop())
+    asyncio.create_task(_availability_loop())
+
+
 async def _fulfill_order_if_needed(order: Order, db) -> None:
     if order.product_type != "stars":
         return
@@ -291,12 +379,24 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
         order.fragment_last_error = str(last_error)
         order.fragment_in_progress = False
         db.commit()
+        await _notify_admin(
+            f"❗ Fragment purchase failed\n"
+            f"order_id={order.order_id}\n"
+            f"user_id={order.user_id}\n"
+            f"error={order.fragment_last_error}"
+        )
         return
 
     try:
         await _safe_send_user_message(order)
     except Exception:
         logger.exception("[BOT] Failed to send user message")
+    await _notify_admin(
+        f"✅ Purchase completed\n"
+        f"order_id={order.order_id}\n"
+        f"user_id={order.user_id}\n"
+        f"product={_product_label(order)}"
+    )
     order.fragment_in_progress = False
     db.commit()
 
@@ -580,9 +680,20 @@ async def create_order_platega(order: PlategaOrderCreate):
             if exc.response is not None:
                 detail = exc.response.text
             logger.error("[PLATEGA] Create payment failed: %s", detail)
+            await _notify_admin(
+                f"⚠️ Platega create failed\n"
+                f"order_id={db_order.order_id}\n"
+                f"user_id={db_order.user_id}\n"
+                f"detail={detail}"
+            )
             raise HTTPException(status_code=502, detail=detail)
         except httpx.ReadTimeout:
             logger.error("[PLATEGA] Create payment timed out")
+            await _notify_admin(
+                f"⚠️ Platega timeout\n"
+                f"order_id={db_order.order_id}\n"
+                f"user_id={db_order.user_id}"
+            )
             raise HTTPException(status_code=504, detail="Platega timeout")
 
         transaction_id = payment.get("transactionId")
