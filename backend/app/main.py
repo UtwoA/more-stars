@@ -46,6 +46,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
+ALLOW_UNVERIFIED_INITDATA = os.getenv("ALLOW_UNVERIFIED_INITDATA", "false").lower() in ("1", "true", "yes")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -227,8 +228,12 @@ async def auth_and_rate_limit(request: Request, call_next):
             return await call_next(request)
 
         init_data = request.headers.get("x-telegram-init-data")
-        if init_data and _verify_telegram_init_data(init_data):
-            return await call_next(request)
+        if init_data:
+            if _verify_telegram_init_data(init_data):
+                return await call_next(request)
+            if ALLOW_UNVERIFIED_INITDATA:
+                logger.warning("[AUTH] Allowing unverified initData for %s", path)
+                return await call_next(request)
 
         return PlainTextResponse("Unauthorized", status_code=401)
 
