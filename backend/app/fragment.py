@@ -190,7 +190,13 @@ async def _send_ton(
     amount: int,
     payload: str,
 ) -> bool:
-    provider = TonCenterClient(testnet=FRAGMENT_TESTNET, api_key=TONCENTER_API_KEY)
+    try:
+        provider = TonCenterClient(testnet=FRAGMENT_TESTNET, api_key=TONCENTER_API_KEY)
+    except TypeError:
+        try:
+            provider = TonCenterClient(testnet=FRAGMENT_TESTNET, key=TONCENTER_API_KEY)
+        except TypeError:
+            provider = TonCenterClient(testnet=FRAGMENT_TESTNET)
     wallet = Wallet(mnemonics=mnemonics, version=FRAGMENT_WALLET_VERSION, provider=provider)
 
     ton_amount = from_nano(amount, "ton")
