@@ -11,6 +11,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-orders_db}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./fragment_cookies.json:/app/fragment_cookies.json:ro
 
   backend:
     build: ./backend
