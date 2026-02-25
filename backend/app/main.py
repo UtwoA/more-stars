@@ -1,7 +1,7 @@
 import asyncio
 import hashlib
 import hmac
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote_plus
 import json
 import logging
 import os
@@ -155,14 +155,33 @@ def _constant_time_eq(a: str, b: str) -> bool:
 def _verify_telegram_init_data(init_data: str) -> bool:
     if not BOT_TOKEN:
         return False
+    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+
+    # Path 1: decoded pairs (standard approach)
     parsed = dict(parse_qsl(init_data, keep_blank_values=True))
     hash_value = parsed.pop("hash", "")
-    if not hash_value:
+    if hash_value:
+        data_check = "\n".join(f"{k}={parsed[k]}" for k in sorted(parsed))
+        h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
+        if _constant_time_eq(h, hash_value):
+            return True
+
+    # Path 2: raw pairs with explicit unquote_plus on values
+    raw_pairs = []
+    raw_hash = ""
+    for pair in init_data.split("&"):
+        if not pair:
+            continue
+        k, _, v = pair.partition("=")
+        if k == "hash":
+            raw_hash = v
+            continue
+        raw_pairs.append((k, unquote_plus(v)))
+    if not raw_hash:
         return False
-    data_check = "\n".join(f"{k}={parsed[k]}" for k in sorted(parsed))
-    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
-    return _constant_time_eq(h, hash_value)
+    raw_check = "\n".join(f"{k}={v}" for k, v in sorted(raw_pairs))
+    h2 = hmac.new(secret_key, raw_check.encode(), hashlib.sha256).hexdigest()
+    return _constant_time_eq(h2, raw_hash)
 
 
 def _client_ip(request: Request) -> str:
