@@ -90,7 +90,7 @@ async def _get_fragment_hash(cookies: dict) -> str:
         r = await client.get(f"{FRAGMENT_BASE_URL}/stars/buy", cookies=cookies, timeout=15)
         r.raise_for_status()
         text = r.text.replace("\\/", "/")
-        match = re.search(r"api\\?hash=([a-zA-Z0-9]+)", text)
+        match = re.search(r"api\?hash=([a-zA-Z0-9]+)", text)
         if not match:
             match = re.search(r"hash\\s*[:=]\\s*\"([a-zA-Z0-9]+)\"", text)
         if not match:
