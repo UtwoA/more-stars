@@ -23,6 +23,8 @@ class Order(Base):
     idempotency_key = Column(String, nullable=True)
     robynhood_transaction_id = Column(String, nullable=True)
     robynhood_status = Column(String, nullable=True)
+    fragment_transaction_id = Column(String, nullable=True)
+    fragment_status = Column(String, nullable=True)
     timestamp = Column(DateTime(timezone=True), default=now_msk)
     success_page_shown = Column(Integer, default=0)
     failure_page_shown = Column(Integer, default=0)

@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query, Header, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, root_validator
+from sqlalchemy import text
 from zoneinfo import ZoneInfo
 
 from .crypto_pay import verify_signature
@@ -32,6 +33,9 @@ logger = logging.getLogger("main")
 
 app = FastAPI()
 Base.metadata.create_all(bind=engine)
+with engine.begin() as conn:
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_transaction_id VARCHAR"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_status VARCHAR"))
 
 MSK = ZoneInfo("Europe/Moscow")
 
@@ -74,6 +78,10 @@ class CryptoOrderCreate(OrderCreateBase):
 
 
 class RobokassaOrderCreate(OrderCreateBase):
+    pass
+
+
+class FragmentOrderCreate(OrderCreateBase):
     pass
 
 
@@ -223,6 +231,30 @@ async def create_order_crypto(order: CryptoOrderCreate):
 @app.post("/orders/robokassa")
 async def create_order_robokassa(order: RobokassaOrderCreate):
     raise HTTPException(status_code=503, detail="SBP/Robokassa payment is temporarily unavailable")
+
+
+@app.post("/orders/fragment")
+async def create_order_fragment(order: FragmentOrderCreate):
+    db = SessionLocal()
+    try:
+        db_order = _create_order(db, order, provider="fragment", currency="TON")
+        try:
+            resp = await send_purchase_to_fragment(db_order)
+        except Exception:
+            logger.exception("[FRAGMENT] Failed to send purchase")
+            db_order.status = "failed"
+            db.commit()
+            return {"order_id": db_order.order_id, "status": "failed"}
+
+        if resp.get("status") == "success":
+            db_order.status = "paid"
+        else:
+            db_order.status = "failed"
+        db.commit()
+
+        return {"order_id": db_order.order_id, "status": db_order.status}
+    finally:
+        db.close()
 
 
 @app.post("/webhook/crypto")

@@ -33,6 +33,7 @@ FRAGMENT_TESTNET = os.getenv("FRAGMENT_TESTNET", "false").lower() in ("1", "true
 FRAGMENT_SEND_MODE = int(os.getenv("FRAGMENT_SEND_MODE", "1"))
 FRAGMENT_SHOW_SENDER = int(os.getenv("FRAGMENT_SHOW_SENDER", "0"))
 TONCENTER_API_KEY = os.getenv("TONCENTER_API_KEY")
+TONCENTER_BASE_URL = os.getenv("TONCENTER_BASE_URL")
 
 
 def _load_fragment_cookies() -> dict:
@@ -190,13 +191,17 @@ async def _send_ton(
     amount: int,
     payload: str,
 ) -> bool:
+    client_kwargs = {}
+    if TONCENTER_BASE_URL:
+        client_kwargs["base_url"] = TONCENTER_BASE_URL
+
     try:
-        provider = TonCenterClient(testnet=FRAGMENT_TESTNET, api_key=TONCENTER_API_KEY)
+        provider = TonCenterClient(testnet=FRAGMENT_TESTNET, api_key=TONCENTER_API_KEY, **client_kwargs)
     except TypeError:
         try:
-            provider = TonCenterClient(testnet=FRAGMENT_TESTNET, key=TONCENTER_API_KEY)
+            provider = TonCenterClient(testnet=FRAGMENT_TESTNET, key=TONCENTER_API_KEY, **client_kwargs)
         except TypeError:
-            provider = TonCenterClient(testnet=FRAGMENT_TESTNET)
+            provider = TonCenterClient(testnet=FRAGMENT_TESTNET, **client_kwargs)
     wallet = Wallet(mnemonics=mnemonics, version=FRAGMENT_WALLET_VERSION, provider=provider)
 
     ton_amount = from_nano(amount, "ton")
@@ -239,6 +244,8 @@ async def send_purchase_to_fragment(order: Order) -> dict:
     db = SessionLocal()
     db_order = db.query(Order).filter(Order.order_id == order.order_id).first()
     if db_order:
+        db_order.fragment_transaction_id = address
+        db_order.fragment_status = resp.get("status")
         db_order.robynhood_transaction_id = address
         db_order.robynhood_status = resp.get("status")
         db.commit()
