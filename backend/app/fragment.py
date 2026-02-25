@@ -38,7 +38,12 @@ TONCENTER_API_KEY = os.getenv("TONCENTER_API_KEY")
 def _load_fragment_cookies() -> dict:
     if FRAGMENT_COOKIES_JSON:
         with open(FRAGMENT_COOKIES_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
+            raw = json.load(f)
+            if isinstance(raw, list):
+                return {item["name"]: item["value"] for item in raw if "name" in item and "value" in item}
+            if isinstance(raw, dict):
+                return raw
+            raise RuntimeError("Unsupported cookies JSON format")
     if FRAGMENT_COOKIES:
         return json.loads(FRAGMENT_COOKIES)
 
