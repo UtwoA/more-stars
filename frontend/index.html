@@ -427,10 +427,6 @@
                       style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
                 CryptoBot
               </button>
-              <button class="btn" id="pay-fragment"
-                      style="background:linear-gradient(135deg,#2c2f36,#0f1115)" data-i18n="fragment_pay">
-                TON (Fragment)
-              </button>
               <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
                 СБП (Российские банки)
               </button>
@@ -610,7 +606,6 @@ const translations = {
       // Payment
       purchase: "Покупка",
       crypto_bot: "CryptoBot",
-      fragment_pay: "TON (Fragment)",
       sbp: "СБП (скоро)",
 
       // Success
@@ -660,7 +655,6 @@ const translations = {
       // Payment
       purchase: "Purchase",
       crypto_bot: "CryptoBot",
-      fragment_pay: "TON (Fragment)",
       sbp: "SBP (coming soon)",
 
       // Success
@@ -697,6 +691,13 @@ document.getElementById('buy-premium').addEventListener('click',()=>{
 // Кнопки оплаты
 document.getElementById("pay-cryptobot").onclick = async () => {
   if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
+  if (currentPurchase.product_type !== "stars") {
+    const msg = currentLang === "ru"
+      ? "Сейчас доступна оплата только для Stars."
+      : "Only Stars payments are available right now.";
+    alert(msg);
+    return;
+  }
 
   try {
     const userId = document.getElementById("user-id").textContent || "0";
@@ -747,40 +748,6 @@ document.getElementById("pay-cryptobot").onclick = async () => {
     }
   } catch (err) {
     console.error("Ошибка оплаты через CryptoBot:", err);
-    alert("Не удалось создать платеж. Попробуйте еще раз.");
-  }
-};
-
-document.getElementById("pay-fragment").onclick = async () => {
-  if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
-
-  try {
-    const userId = document.getElementById("user-id").textContent || "0";
-    const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
-    const response = await fetch("/orders/fragment", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        user_id: userId,
-        recipient: currentPurchase.recipient || "self",
-        product_type: currentPurchase.product_type,
-        quantity: currentPurchase.quantity || null,
-        months: currentPurchase.months || null,
-        amount: currentPurchase.amount || null,
-        amount_rub: amountValue
-      })
-    });
-
-    const data = await response.json();
-    console.log("Создан заказ:", data);
-
-    if (data.status === "paid") {
-      openSuccessPage(currentPurchase);
-    } else {
-      openFailurePage(currentPurchase);
-    }
-  } catch (err) {
-    console.error("Ошибка оплаты через Fragment:", err);
     alert("Не удалось создать платеж. Попробуйте еще раз.");
   }
 };
@@ -870,11 +837,6 @@ function openPaymentPage(pkg) {
 
   // Сумма
   document.getElementById("payment-amount").textContent = `${pkg.price}`;
-
-  const fragmentBtn = document.getElementById("pay-fragment");
-  if (fragmentBtn) {
-    fragmentBtn.style.display = pkg.product_type === "stars" ? "inline-flex" : "none";
-  }
 
   switchPage("payment-page");
 }

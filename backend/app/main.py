@@ -201,6 +201,8 @@ def _check_order_expired(order: Order, db):
 
 @app.post("/orders/crypto")
 async def create_order_crypto(order: CryptoOrderCreate):
+    if order.product_type != "stars":
+        raise HTTPException(status_code=400, detail="Only Stars are supported right now")
     amount_crypto = await convert_rub_to_crypto(order.amount_rub, order.currency)
 
     db = SessionLocal()
