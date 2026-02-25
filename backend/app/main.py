@@ -105,6 +105,39 @@ def _product_label(order: Order) -> str:
     return order.product_type
 
 
+async def _safe_send_user_message(order: Order) -> None:
+    try:
+        chat_id = int(order.user_id)
+    except (TypeError, ValueError):
+        logger.warning("[BOT] Invalid user_id for chat_id: %s", order.user_id)
+        return
+    await send_user_message(chat_id=chat_id, product_name=_product_label(order))
+
+
+async def _fulfill_order_if_needed(order: Order, db) -> None:
+    if order.product_type != "stars":
+        return
+    if (order.fragment_status or "").lower() == "success":
+        return
+
+    try:
+        resp = await send_purchase_to_fragment(order)
+        if resp.get("status") != "success":
+            order.status = "failed"
+            db.commit()
+            return
+    except Exception:
+        logger.exception("[FRAGMENT] Failed to send purchase")
+        order.status = "failed"
+        db.commit()
+        return
+
+    try:
+        await _safe_send_user_message(order)
+    except Exception:
+        logger.exception("[BOT] Failed to send user message")
+
+
 def _extract_order_id(data: dict) -> str | None:
     if isinstance(data.get("payload"), str):
         return data.get("payload")
@@ -221,13 +254,7 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
     if status == "paid":
         order.status = "paid"
         db.commit()
-        try:
-            await send_purchase_to_fragment(order)
-            await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
-        except Exception:
-            logger.exception("[FRAGMENT] Failed to send purchase")
-            order.status = "failed"
-            db.commit()
+        await _fulfill_order_if_needed(order, db)
     elif status in ("expired", "failed"):
         order.status = "failed"
         db.commit()
@@ -249,13 +276,7 @@ async def _sync_platega_order_status(order: Order, db) -> None:
     if status == "CONFIRMED":
         order.status = "paid"
         db.commit()
-        try:
-            await send_purchase_to_fragment(order)
-            await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
-        except Exception:
-            logger.exception("[FRAGMENT] Failed to send purchase")
-            order.status = "failed"
-            db.commit()
+        await _fulfill_order_if_needed(order, db)
     elif status in ("CANCELED", "CHARGEBACKED"):
         order.status = "failed"
         db.commit()
@@ -415,14 +436,7 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
         if status == "paid" and order.status != "paid":
             order.status = "paid"
             db.commit()
-
-            try:
-                await send_purchase_to_fragment(order)
-                await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
-            except Exception:
-                logger.exception("[FRAGMENT] Failed to send purchase")
-                order.status = "failed"
-                db.commit()
+            await _fulfill_order_if_needed(order, db)
     finally:
         db.close()
 
@@ -455,13 +469,7 @@ async def platega_webhook(request: Request):
         if status == "CONFIRMED" and order.status != "paid":
             order.status = "paid"
             db.commit()
-            try:
-                await send_purchase_to_fragment(order)
-                await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
-            except Exception:
-                logger.exception("[FRAGMENT] Failed to send purchase")
-                order.status = "failed"
-                db.commit()
+            await _fulfill_order_if_needed(order, db)
         elif status in ("CANCELED", "CHARGEBACKED"):
             order.status = "failed"
             db.commit()
@@ -489,14 +497,7 @@ async def robokassa_webhook(
         if order.status != "paid":
             order.status = "paid"
             db.commit()
-
-            try:
-                await send_purchase_to_fragment(order)
-                await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
-            except Exception:
-                logger.exception("[FRAGMENT] Failed to send purchase")
-                order.status = "failed"
-                db.commit()
+            await _fulfill_order_if_needed(order, db)
 
         return PlainTextResponse(content=f"OK{InvId}", status_code=200)
     finally:
