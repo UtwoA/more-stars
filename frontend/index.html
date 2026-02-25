@@ -331,6 +331,7 @@
             <div><div class="label" data-i18n="language">Язык</div>
               <select id="lang-select" class="select" aria-label="Language selector"><option value="ru">Русский</option><option value="en">English</option></select>
             </div>
+            <div id="initdata-status" style="margin-top:10px;font-size:12px;color:var(--muted);">initData: —</div>
           </div>
         </div>
 
@@ -719,6 +720,15 @@ function getAuthHeaders() {
   return initData ? {"X-Telegram-Init-Data": initData} : {};
 }
 
+async function fetchJsonWithAuth(url, options = {}) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    console.warn("Request failed:", res.status, url);
+    return null;
+  }
+  return res.json();
+}
+
 document.getElementById("pay-cryptobot").onclick = async () => {
   if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
   if (currentPurchase.product_type !== "stars") {
@@ -761,8 +771,8 @@ document.getElementById("pay-cryptobot").onclick = async () => {
 
       const orderId = data.order_id;
       const interval = setInterval(async () => {
-        const statusRes = await fetch(`/orders/${orderId}`, {headers: getAuthHeaders()});
-        const statusData = await statusRes.json();
+        const statusData = await fetchJsonWithAuth(`/orders/${orderId}`, {headers: getAuthHeaders()});
+        if (!statusData) return;
         console.log("Проверка статуса:", statusData);
 
         if (statusData.status === "paid") {
@@ -843,8 +853,8 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
 
       const orderId = data.order_id;
       const interval = setInterval(async () => {
-        const statusRes = await fetch(`/orders/${orderId}`, {headers: getAuthHeaders()});
-        const statusData = await statusRes.json();
+        const statusData = await fetchJsonWithAuth(`/orders/${orderId}`, {headers: getAuthHeaders()});
+        if (!statusData) return;
         console.log("Проверка статуса:", statusData);
 
         if (statusData.status === "paid") {
@@ -1021,6 +1031,10 @@ function setUserFromTelegram(){
         uid.textContent=user.id||'';
         ref.textContent=`https://t.me/more_stars_bot?start=${user.id}`;
         ref.href=`https://t.me/more_stars_bot?start=${user.id}`;
+        const initDataLen = (window.Telegram?.WebApp?.initData || "").length;
+        const initEl = document.getElementById("initdata-status");
+        if (initEl) initEl.textContent = `initData: ${initDataLen > 0 ? "OK" : "EMPTY"}`;
+
         if(user.photo_url){
           const i=new Image();
           i.onload=()=>{ avatar.src=user.photo_url; avatar.classList.remove('skeleton'); };
@@ -1035,6 +1049,8 @@ function setUserFromTelegram(){
       document.getElementById('ref-link').textContent='https://t.me/more_stars_bot?start=123456';
       document.getElementById('ref-link').href='https://t.me/more_stars_bot?start=123456';
       avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=D'; avatar.classList.remove('skeleton');
+      const initEl = document.getElementById("initdata-status");
+      if (initEl) initEl.textContent = "initData: NONE";
     }
   }catch(e){ console.warn('Telegram init read error',e); }
 }
@@ -1063,8 +1079,12 @@ async function loadHistory(userId) {
   list.innerHTML = "";
 
   try {
-    const response = await fetch(`/orders/history?user_id=${userId}`, {headers: getAuthHeaders()});
-    const data = await response.json();
+    const data = await fetchJsonWithAuth(`/orders/history?user_id=${userId}`, {headers: getAuthHeaders()});
+    if (!data) {
+      loader.style.display = "none";
+      empty.style.display = "block";
+      return;
+    }
 
     loader.style.display = "none";
 
@@ -1262,8 +1282,11 @@ async function initWebApp() {
   const userId = document.getElementById("user-id").textContent;
 
   try {
-    const res = await fetch(`/orders/last?user_id=${userId}`, {headers: getAuthHeaders()});
-    const data = await res.json();
+    const data = await fetchJsonWithAuth(`/orders/last?user_id=${userId}`, {headers: getAuthHeaders()});
+    if (!data) {
+      switchPage("shop");
+      return;
+    }
 
     if (data.show_success_page) {
       // Показываем страницу успешной оплаты
@@ -1298,8 +1321,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   // --- Инициализация WebApp ---
   const userId = document.getElementById("user-id").textContent;
   try {
-    const res = await fetch(`/orders/last?user_id=${userId}`, {headers: getAuthHeaders()});
-    const data = await res.json();
+    const data = await fetchJsonWithAuth(`/orders/last?user_id=${userId}`, {headers: getAuthHeaders()});
+    if (!data) {
+      switchPage("shop");
+      return;
+    }
 
     if (data.show_success_page) {
       openSuccessPage({title: formatOrderProduct(data)});
