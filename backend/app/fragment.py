@@ -79,12 +79,30 @@ def _get_public_key_hex(mnemonics: list[str], version: str) -> str:
 
 
 async def _get_fragment_hash(cookies: dict) -> str:
-    async with httpx.AsyncClient() as client:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/132.0.0.0 Safari/537.36 OPR/117.0.0.0"
+        )
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         r = await client.get(f"{FRAGMENT_BASE_URL}/stars/buy", cookies=cookies, timeout=15)
         r.raise_for_status()
-        match = re.search(r"api\\?hash=([a-zA-Z0-9]+)", r.text)
+        text = r.text
+        match = re.search(r"api\\?hash=([a-zA-Z0-9]+)", text)
         if not match:
-            raise RuntimeError("Fragment hash not found")
+            match = re.search(r"hash\\s*[:=]\\s*\"([a-zA-Z0-9]+)\"", text)
+        if not match:
+            match = re.search(r"apiHash\\s*[:=]\\s*\"([a-zA-Z0-9]+)\"", text)
+        if not match:
+            logger.error(
+                "Fragment hash not found. Status=%s Url=%s BodyHead=%s",
+                r.status_code,
+                str(r.url),
+                text[:500].replace("\n", " "),
+            )
+            raise RuntimeError("Fragment hash not found (check cookies / auth)")
         return match.group(1)
 
 
