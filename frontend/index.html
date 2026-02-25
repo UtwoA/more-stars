@@ -436,8 +436,10 @@
               </button>
             </div>
             <div id="payment-link" style="display:none;margin-top:12px;font-size:12px;">
-              <div style="color:var(--muted);margin-bottom:6px;">Если ссылка не открылась, нажмите:</div>
-              <a id="payment-link-url" href="#" target="_blank" rel="noopener" style="word-break:break-all;">Открыть оплату</a>
+              <div id="payment-method-label" style="color:var(--muted);margin-bottom:6px;">Выбранный способ оплаты: —</div>
+              <button id="payment-link-btn" class="btn secondary" style="width:100%;" type="button">
+                Перейти к оплате
+              </button>
             </div>
           </div>
           <img src="paymentLoading.gif"
@@ -776,7 +778,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
   }
 };
 
-async function startPlategaPayment(paymentMethod) {
+async function startPlategaPayment(paymentMethod, paymentLabel) {
   if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
   if (currentPurchase.product_type !== "stars") {
     const msg = currentLang === "ru"
@@ -817,29 +819,21 @@ async function startPlategaPayment(paymentMethod) {
 
     const payUrl = data?.redirect;
     if (payUrl) {
-      let opened = false;
-      try {
-        if (window.Telegram?.WebApp?.openTelegramLink) {
-          window.Telegram.WebApp.openTelegramLink(payUrl);
-          opened = true;
-        } else {
-          opened = !!window.open(payUrl, "_blank");
-        }
-      } catch (e) {
-        console.error("openTelegramLink failed, fallback to window.open", e);
-        opened = !!window.open(payUrl, "_blank");
-      }
-
-      if (!opened) {
-        const paymentLink = document.getElementById("payment-link");
-        const paymentLinkUrl = document.getElementById("payment-link-url");
-        if (paymentLink && paymentLinkUrl) {
-          paymentLinkUrl.href = payUrl;
-          paymentLinkUrl.textContent = payUrl;
-          paymentLink.style.display = "block";
-        } else {
-          alert(payUrl);
-        }
+      const paymentLink = document.getElementById("payment-link");
+      const paymentLinkBtn = document.getElementById("payment-link-btn");
+      const paymentMethodLabelEl = document.getElementById("payment-method-label");
+      if (paymentLink && paymentLinkBtn && paymentMethodLabelEl) {
+        paymentMethodLabelEl.textContent = `Выбранный способ оплаты: ${paymentLabel}`;
+        paymentLinkBtn.onclick = () => {
+          if (window.Telegram?.WebApp?.openTelegramLink) {
+            window.Telegram.WebApp.openTelegramLink(payUrl);
+          } else {
+            window.open(payUrl, "_blank");
+          }
+        };
+        paymentLink.style.display = "block";
+      } else {
+        window.open(payUrl, "_blank");
       }
 
       const orderId = data.order_id;
@@ -867,8 +861,8 @@ async function startPlategaPayment(paymentMethod) {
   }
 }
 
-document.getElementById("pay-sbp").onclick = () => startPlategaPayment(2);
-document.getElementById("pay-card").onclick = () => startPlategaPayment(11);
+document.getElementById("pay-sbp").onclick = () => startPlategaPayment(2, "СБП");
+document.getElementById("pay-card").onclick = () => startPlategaPayment(11, "Карта");
 
 // Кнопка после удачной оплаты
 document.getElementById("success-back").addEventListener("click", () => {
