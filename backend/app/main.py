@@ -234,7 +234,7 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
 
 
 async def _sync_platega_order_status(order: Order, db) -> None:
-    if order.payment_provider != "platega" or order.status in ("paid", "failed"):
+    if order.payment_provider != "platega" or order.status == "paid":
         return
     if not order.payment_invoice_id:
         return
