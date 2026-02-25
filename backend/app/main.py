@@ -42,6 +42,7 @@ PLATEGA_WEBHOOK_IP_ALLOWLIST = {
     ip.strip() for ip in (os.getenv("PLATEGA_WEBHOOK_IP_ALLOWLIST") or "").split(",") if ip.strip()
 }
 PLATEGA_WEBHOOK_TOKEN = os.getenv("PLATEGA_WEBHOOK_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
