@@ -695,6 +695,19 @@ document.getElementById('buy-premium').addEventListener('click',()=>{
 });
 
 // Кнопки оплаты
+function getNumericUserId() {
+  const raw = document.getElementById("user-id").textContent || "";
+  const userId = raw.trim();
+  if (!/^\d+$/.test(userId)) {
+    const msg = currentLang === "ru"
+      ? "Откройте приложение в Telegram, чтобы оплатить."
+      : "Open the app in Telegram to proceed with payment.";
+    alert(msg);
+    return null;
+  }
+  return userId;
+}
+
 document.getElementById("pay-cryptobot").onclick = async () => {
   if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
   if (currentPurchase.product_type !== "stars") {
@@ -706,7 +719,8 @@ document.getElementById("pay-cryptobot").onclick = async () => {
   }
 
   try {
-    const userId = document.getElementById("user-id").textContent || "0";
+    const userId = getNumericUserId();
+    if (!userId) return;
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
     const response = await fetch("/orders/crypto", {
       method: "POST",
@@ -769,7 +783,8 @@ async function startPlategaPayment(paymentMethod) {
   }
 
   try {
-    const userId = document.getElementById("user-id").textContent || "0";
+    const userId = getNumericUserId();
+    if (!userId) return;
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
     const response = await fetch("/orders/platega", {
       method: "POST",

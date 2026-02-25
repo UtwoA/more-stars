@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -76,6 +77,10 @@ class OrderCreateBase(BaseModel):
         else:
             raise ValueError("product_type must be one of: stars, premium, ads")
 
+        user_id = values.get("user_id")
+        if not user_id or not str(user_id).isdigit():
+            raise ValueError("user_id must be numeric")
+
         return values
 
 
@@ -84,10 +89,6 @@ class CryptoOrderCreate(OrderCreateBase):
 
 
 class RobokassaOrderCreate(OrderCreateBase):
-    pass
-
-
-class FragmentOrderCreate(OrderCreateBase):
     pass
 
 
@@ -120,14 +121,21 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     if (order.fragment_status or "").lower() == "success":
         return
 
-    try:
-        resp = await send_purchase_to_fragment(order)
-        if resp.get("status") != "success":
-            order.status = "failed"
-            db.commit()
-            return
-    except Exception:
-        logger.exception("[FRAGMENT] Failed to send purchase")
+    last_error = None
+    for delay in (0, 2, 5):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            resp = await send_purchase_to_fragment(order)
+            if resp.get("status") == "success":
+                last_error = None
+                break
+            last_error = RuntimeError("Fragment returned non-success status")
+        except Exception as exc:
+            last_error = exc
+            logger.exception("[FRAGMENT] Failed to send purchase")
+
+    if last_error:
         order.status = "failed"
         db.commit()
         return
@@ -381,30 +389,6 @@ async def create_order_platega(order: PlategaOrderCreate):
             "redirect": db_order.payment_url,
             "platega": payment
         }
-    finally:
-        db.close()
-
-
-@app.post("/orders/fragment")
-async def create_order_fragment(order: FragmentOrderCreate):
-    db = SessionLocal()
-    try:
-        db_order = _create_order(db, order, provider="fragment", currency="TON")
-        try:
-            resp = await send_purchase_to_fragment(db_order)
-        except Exception:
-            logger.exception("[FRAGMENT] Failed to send purchase")
-            db_order.status = "failed"
-            db.commit()
-            return {"order_id": db_order.order_id, "status": "failed"}
-
-        if resp.get("status") == "success":
-            db_order.status = "paid"
-        else:
-            db_order.status = "failed"
-        db.commit()
-
-        return {"order_id": db_order.order_id, "status": db_order.status}
     finally:
         db.close()
 
