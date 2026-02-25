@@ -26,3 +26,5 @@ services:
       - db
     ports:
       - "8000:8000"
+    volumes:
+      - ./fragment_cookies.json:/app/fragment_cookies.json:ro
