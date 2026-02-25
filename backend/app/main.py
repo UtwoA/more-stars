@@ -366,7 +366,9 @@ async def _create_platega_payment_with_method(amount_rub: float, order_id: str, 
             headers=headers,
             timeout=20
         )
-        r.raise_for_status()
+        if r.status_code >= 400:
+            logger.error("[PLATEGA] Create payment failed: %s %s", r.status_code, r.text)
+            r.raise_for_status()
         resp = r.json()
 
     with engine.begin() as conn:
