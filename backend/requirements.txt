@@ -6,3 +6,6 @@ pydantic
 httpx
 python-dotenv
 requests
+aiohttp
+tonsdk
+TonTools

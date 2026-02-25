@@ -17,7 +17,7 @@ from .database import SessionLocal, Base, engine
 from .models import Order
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
-from .robynhood import send_purchase_to_robynhood
+from .fragment import send_purchase_to_fragment
 from bot import send_user_message
 
 
@@ -148,10 +148,10 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
         order.status = "paid"
         db.commit()
         try:
-            await send_purchase_to_robynhood(order)
+            await send_purchase_to_fragment(order)
             await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
         except Exception:
-            logger.exception("[ROBYNHOOD] Failed to send purchase")
+            logger.exception("[FRAGMENT] Failed to send purchase")
             order.status = "failed"
             db.commit()
     elif status in ("expired", "failed"):
@@ -254,10 +254,10 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
             db.commit()
 
             try:
-                await send_purchase_to_robynhood(order)
+                await send_purchase_to_fragment(order)
                 await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
             except Exception:
-                logger.exception("[ROBYNHOOD] Failed to send purchase")
+                logger.exception("[FRAGMENT] Failed to send purchase")
                 order.status = "failed"
                 db.commit()
     finally:
@@ -286,10 +286,10 @@ async def robokassa_webhook(
             db.commit()
 
             try:
-                await send_purchase_to_robynhood(order)
+                await send_purchase_to_fragment(order)
                 await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
             except Exception:
-                logger.exception("[ROBYNHOOD] Failed to send purchase")
+                logger.exception("[FRAGMENT] Failed to send purchase")
                 order.status = "failed"
                 db.commit()
 
