@@ -23,7 +23,7 @@ from .models import Order
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
-from bot import send_user_message, send_admin_message
+from bot import send_user_message, send_admin_message, build_admin_dispatcher, bot
 
 
 load_dotenv()
@@ -264,34 +264,9 @@ async def _notify_admin(text: str) -> None:
 async def _send_daily_report() -> None:
     if not ADMIN_CHAT_ID:
         return
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        start = datetime.combine(now.date(), time(0, 0), tzinfo=MSK)
-        end = start + timedelta(days=1)
-
-        paid = db.query(Order).filter(
-            Order.status == "paid",
-            Order.timestamp >= start,
-            Order.timestamp < end
-        ).all()
-        failed = db.query(Order).filter(
-            Order.status == "failed",
-            Order.timestamp >= start,
-            Order.timestamp < end
-        ).count()
-
-        total_paid = sum((o.amount_rub or 0) for o in paid)
-        text = (
-            "📊 Daily report\n"
-            f"date={start.date().isoformat()}\n"
-            f"paid_orders={len(paid)}\n"
-            f"paid_total_rub={total_paid:.2f}\n"
-            f"failed_orders={failed}"
-        )
-        await _notify_admin(text)
-    finally:
-        db.close()
+    from .admin_reports import build_admin_report
+    text = await build_admin_report()
+    await _notify_admin(text)
 
 
 async def _daily_report_loop() -> None:
@@ -335,6 +310,9 @@ async def _availability_loop() -> None:
 async def _startup_tasks():
     asyncio.create_task(_daily_report_loop())
     asyncio.create_task(_availability_loop())
+    if ADMIN_CHAT_ID:
+        dp = build_admin_dispatcher(ADMIN_CHAT_ID)
+        asyncio.create_task(dp.start_polling(bot))
 
 
 async def _fulfill_order_if_needed(order: Order, db) -> None:
