@@ -435,6 +435,10 @@
                 СБП (Российские банки)
               </button>
             </div>
+            <div id="payment-link" style="display:none;margin-top:12px;font-size:12px;">
+              <div style="color:var(--muted);margin-bottom:6px;">Если ссылка не открылась, нажмите:</div>
+              <a id="payment-link-url" href="#" target="_blank" rel="noopener" style="word-break:break-all;">Открыть оплату</a>
+            </div>
           </div>
           <img src="paymentLoading.gif"
                alt="Payment Animation"
@@ -813,15 +817,29 @@ async function startPlategaPayment(paymentMethod) {
 
     const payUrl = data?.redirect;
     if (payUrl) {
+      let opened = false;
       try {
         if (window.Telegram?.WebApp?.openTelegramLink) {
           window.Telegram.WebApp.openTelegramLink(payUrl);
+          opened = true;
         } else {
-          window.open(payUrl, "_blank");
+          opened = !!window.open(payUrl, "_blank");
         }
       } catch (e) {
         console.error("openTelegramLink failed, fallback to window.open", e);
-        window.open(payUrl, "_blank");
+        opened = !!window.open(payUrl, "_blank");
+      }
+
+      if (!opened) {
+        const paymentLink = document.getElementById("payment-link");
+        const paymentLinkUrl = document.getElementById("payment-link-url");
+        if (paymentLink && paymentLinkUrl) {
+          paymentLinkUrl.href = payUrl;
+          paymentLinkUrl.textContent = payUrl;
+          paymentLink.style.display = "block";
+        } else {
+          alert(payUrl);
+        }
       }
 
       const orderId = data.order_id;
@@ -940,6 +958,8 @@ function openPaymentPage(pkg) {
     btn.style.opacity = isStars ? "1" : "0.5";
     btn.style.pointerEvents = isStars ? "auto" : "none";
   });
+  const paymentLink = document.getElementById("payment-link");
+  if (paymentLink) paymentLink.style.display = "none";
 
   switchPage("payment-page");
 }
