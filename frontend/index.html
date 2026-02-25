@@ -825,11 +825,7 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
       if (paymentLink && paymentLinkBtn && paymentMethodLabelEl) {
         paymentMethodLabelEl.textContent = `Выбранный способ оплаты: ${paymentLabel}`;
         paymentLinkBtn.onclick = () => {
-          if (window.Telegram?.WebApp?.openTelegramLink) {
-            window.Telegram.WebApp.openTelegramLink(payUrl);
-          } else {
-            window.open(payUrl, "_blank");
-          }
+          window.location.href = payUrl;
         };
         paymentLink.style.display = "block";
       } else {
