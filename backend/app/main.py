@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import hmac
+from urllib.parse import parse_qsl
 import json
 import logging
 import os
@@ -34,6 +37,14 @@ PLATEGA_SECRET = os.getenv("PLATEGA_SECRET")
 PLATEGA_PAYMENT_METHOD = int(os.getenv("PLATEGA_PAYMENT_METHOD", "2"))
 PLATEGA_RETURN_URL = os.getenv("PLATEGA_RETURN_URL")
 PLATEGA_FAIL_URL = os.getenv("PLATEGA_FAIL_URL")
+PLATEGA_WEBHOOK_SIGNING_SECRET = os.getenv("PLATEGA_WEBHOOK_SIGNING_SECRET")
+PLATEGA_WEBHOOK_IP_ALLOWLIST = {
+    ip.strip() for ip in (os.getenv("PLATEGA_WEBHOOK_IP_ALLOWLIST") or "").split(",") if ip.strip()
+}
+PLATEGA_WEBHOOK_TOKEN = os.getenv("PLATEGA_WEBHOOK_TOKEN")
+
+API_AUTH_KEY = os.getenv("API_AUTH_KEY")
+RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -43,6 +54,26 @@ Base.metadata.create_all(bind=engine)
 with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_transaction_id VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_status VARCHAR"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_in_progress BOOLEAN"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_attempts INTEGER"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_last_error VARCHAR"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS payment_transactions (
+                id SERIAL PRIMARY KEY,
+                order_id VARCHAR NOT NULL,
+                provider VARCHAR NOT NULL,
+                provider_txn_id VARCHAR,
+                status VARCHAR,
+                amount FLOAT,
+                currency VARCHAR,
+                raw_response TEXT,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
 
 MSK = ZoneInfo("Europe/Moscow")
 
@@ -64,6 +95,7 @@ class OrderCreateBase(BaseModel):
         quantity = values.get("quantity")
         months = values.get("months")
         amount = values.get("amount")
+        recipient = (values.get("recipient") or "").strip()
 
         if product_type == "stars":
             if not quantity:
@@ -76,6 +108,15 @@ class OrderCreateBase(BaseModel):
                 raise ValueError("amount is required for ads")
         else:
             raise ValueError("product_type must be one of: stars, premium, ads")
+
+        if recipient not in ("self", "@unknown"):
+            if not recipient.startswith("@"):
+                raise ValueError("recipient must start with @")
+            handle = recipient[1:]
+            if not handle or len(handle) < 5 or len(handle) > 32:
+                raise ValueError("recipient username length is invalid")
+            if not handle.replace("_", "").isalnum():
+                raise ValueError("recipient username contains invalid characters")
 
         user_id = values.get("user_id")
         if not user_id or not str(user_id).isdigit():
@@ -106,6 +147,74 @@ def _product_label(order: Order) -> str:
     return order.product_type
 
 
+def _constant_time_eq(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _verify_telegram_init_data(init_data: str) -> bool:
+    if not BOT_TOKEN:
+        return False
+    parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+    hash_value = parsed.pop("hash", "")
+    if not hash_value:
+        return False
+    data_check = "\n".join(f"{k}={parsed[k]}" for k in sorted(parsed))
+    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
+    return _constant_time_eq(h, hash_value)
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+class _RateLimiter:
+    def __init__(self, limit_per_min: int):
+        self.limit = limit_per_min
+        self.buckets: dict[str, list[float]] = {}
+
+    def allow(self, key: str) -> bool:
+        now = asyncio.get_event_loop().time()
+        window_start = now - 60
+        bucket = self.buckets.get(key, [])
+        bucket = [t for t in bucket if t >= window_start]
+        if len(bucket) >= self.limit:
+            self.buckets[key] = bucket
+            return False
+        bucket.append(now)
+        self.buckets[key] = bucket
+        return True
+
+
+_rate_limiter = _RateLimiter(RATE_LIMIT_PER_MIN)
+
+
+@app.middleware("http")
+async def auth_and_rate_limit(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/webhook/"):
+        return await call_next(request)
+
+    if path.startswith("/orders/"):
+        if not _rate_limiter.allow(_client_ip(request)):
+            return PlainTextResponse("Too Many Requests", status_code=429)
+
+        api_key = request.headers.get("x-api-key")
+        if API_AUTH_KEY and api_key and _constant_time_eq(api_key, API_AUTH_KEY):
+            return await call_next(request)
+
+        init_data = request.headers.get("x-telegram-init-data")
+        if init_data and _verify_telegram_init_data(init_data):
+            return await call_next(request)
+
+        return PlainTextResponse("Unauthorized", status_code=401)
+
+    return await call_next(request)
+
+
 async def _safe_send_user_message(order: Order) -> None:
     try:
         chat_id = int(order.user_id)
@@ -119,6 +228,23 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     if order.product_type != "stars":
         return
     if (order.fragment_status or "").lower() == "success":
+        return
+
+    claim = db.execute(
+        text(
+            """
+            UPDATE orders
+            SET fragment_in_progress = TRUE,
+                fragment_attempts = COALESCE(fragment_attempts, 0) + 1
+            WHERE order_id = :order_id
+              AND (fragment_in_progress IS NULL OR fragment_in_progress = FALSE)
+              AND (fragment_status IS NULL OR fragment_status != 'success')
+            """
+        ),
+        {"order_id": order.order_id},
+    )
+    db.commit()
+    if claim.rowcount == 0:
         return
 
     last_error = None
@@ -137,6 +263,8 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
 
     if last_error:
         order.status = "failed"
+        order.fragment_last_error = str(last_error)
+        order.fragment_in_progress = False
         db.commit()
         return
 
@@ -144,6 +272,8 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
         await _safe_send_user_message(order)
     except Exception:
         logger.exception("[BOT] Failed to send user message")
+    order.fragment_in_progress = False
+    db.commit()
 
 
 def _extract_order_id(data: dict) -> str | None:
@@ -212,10 +342,32 @@ async def _create_platega_payment_with_method(amount_rub: float, order_id: str, 
             timeout=20
         )
         r.raise_for_status()
-        return r.json()
+        resp = r.json()
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO payment_transactions
+                (order_id, provider, provider_txn_id, status, amount, currency, raw_response)
+                VALUES (:order_id, :provider, :provider_txn_id, :status, :amount, :currency, :raw_response)
+                """
+            ),
+            {
+                "order_id": order_id,
+                "provider": "platega",
+                "provider_txn_id": resp.get("transactionId"),
+                "status": resp.get("status"),
+                "amount": amount_rub,
+                "currency": "RUB",
+                "raw_response": json.dumps(resp),
+            },
+        )
+
+    return resp
 
 
-async def _get_platega_status(transaction_id: str) -> dict:
+async def _get_platega_status(transaction_id: str, order_id: str | None = None) -> dict:
     if not PLATEGA_MERCHANT_ID or not PLATEGA_SECRET:
         raise RuntimeError("PLATEGA_MERCHANT_ID or PLATEGA_SECRET is not set")
 
@@ -232,7 +384,27 @@ async def _get_platega_status(transaction_id: str) -> dict:
             timeout=20
         )
         r.raise_for_status()
-        return r.json()
+        resp = r.json()
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO payment_transactions
+                (order_id, provider, provider_txn_id, status, raw_response)
+                VALUES (:order_id, :provider, :provider_txn_id, :status, :raw_response)
+                """
+            ),
+            {
+                "order_id": order_id or "",
+                "provider": "platega_status",
+                "provider_txn_id": transaction_id,
+                "status": resp.get("status"),
+                "raw_response": json.dumps(resp),
+            },
+        )
+
+    return resp
 
 
 async def _sync_crypto_order_status(order: Order, db) -> None:
@@ -275,7 +447,7 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         return
 
     try:
-        payload = await _get_platega_status(order.payment_invoice_id)
+        payload = await _get_platega_status(order.payment_invoice_id, order.order_id)
     except Exception:
         logger.exception("[PLATEGA] Failed to sync payment status for order %s", order.order_id)
         return
@@ -287,6 +459,7 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         await _fulfill_order_if_needed(order, db)
     elif status in ("CANCELED", "CHARGEBACKED"):
         order.status = "failed"
+        order.fragment_last_error = f"platega_status={status}"
         db.commit()
 
 def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | None = None) -> Order:
@@ -427,16 +600,34 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
     return {"status": "ok"}
 
 
-@app.post("/webhook/platega")
-async def platega_webhook(request: Request):
+@app.post("/webhook/platega/{token}")
+async def platega_webhook(
+    token: str,
+    request: Request,
+    x_signature: str | None = Header(default=None, alias="X-Signature"),
+):
+    if not PLATEGA_WEBHOOK_TOKEN:
+        raise HTTPException(status_code=500, detail="PLATEGA_WEBHOOK_TOKEN is not configured")
+    if not _constant_time_eq(token, PLATEGA_WEBHOOK_TOKEN):
+        raise HTTPException(status_code=404, detail="Not found")
     merchant_id = request.headers.get("X-MerchantId")
     secret = request.headers.get("X-Secret")
     if not merchant_id or not secret:
         raise HTTPException(status_code=400, detail="Missing X-MerchantId or X-Secret")
-    if merchant_id != PLATEGA_MERCHANT_ID or secret != PLATEGA_SECRET:
+    if merchant_id != PLATEGA_MERCHANT_ID or not _constant_time_eq(secret, PLATEGA_SECRET or ""):
         raise HTTPException(status_code=403, detail="Invalid credentials")
 
-    data = await request.json()
+    body = await request.body()
+    if PLATEGA_WEBHOOK_SIGNING_SECRET:
+        calc = hmac.new(PLATEGA_WEBHOOK_SIGNING_SECRET.encode(), body, hashlib.sha256).hexdigest()
+        if not x_signature or not _constant_time_eq(calc, x_signature):
+            raise HTTPException(status_code=403, detail="Invalid signature")
+    if PLATEGA_WEBHOOK_IP_ALLOWLIST:
+        ip = _client_ip(request)
+        if ip not in PLATEGA_WEBHOOK_IP_ALLOWLIST:
+            raise HTTPException(status_code=403, detail="IP not allowed")
+
+    data = json.loads(body.decode("utf-8") or "{}")
     logger.info("WEBHOOK PLATEGA DATA: %s", json.dumps(data))
 
     transaction_id = data.get("id")
@@ -449,6 +640,24 @@ async def platega_webhook(request: Request):
         order = db.query(Order).filter(Order.payment_invoice_id == transaction_id).first()
         if not order:
             return {"status": "error", "message": "Order not found"}
+
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO payment_transactions
+                    (order_id, provider, provider_txn_id, status, raw_response)
+                    VALUES (:order_id, :provider, :provider_txn_id, :status, :raw_response)
+                    """
+                ),
+                {
+                    "order_id": order.order_id,
+                    "provider": "platega_webhook",
+                    "provider_txn_id": transaction_id,
+                    "status": status,
+                    "raw_response": json.dumps(data),
+                },
+            )
 
         if status == "CONFIRMED" and order.status != "paid":
             order.status = "paid"

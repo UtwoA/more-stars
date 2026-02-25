@@ -714,6 +714,11 @@ function getNumericUserId() {
   return userId;
 }
 
+function getAuthHeaders() {
+  const initData = window.Telegram?.WebApp?.initData || "";
+  return initData ? {"X-Telegram-Init-Data": initData} : {};
+}
+
 document.getElementById("pay-cryptobot").onclick = async () => {
   if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
   if (currentPurchase.product_type !== "stars") {
@@ -730,7 +735,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
     const response = await fetch("/orders/crypto", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ...getAuthHeaders()},
       body: JSON.stringify({
         user_id: userId,
         recipient: currentPurchase.recipient || "self",
@@ -756,7 +761,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
 
       const orderId = data.order_id;
       const interval = setInterval(async () => {
-        const statusRes = await fetch(`/orders/${orderId}`);
+        const statusRes = await fetch(`/orders/${orderId}`, {headers: getAuthHeaders()});
         const statusData = await statusRes.json();
         console.log("Проверка статуса:", statusData);
 
@@ -794,7 +799,7 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
     const response = await fetch("/orders/platega", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: {"Content-Type": "application/json", ...getAuthHeaders()},
       body: JSON.stringify({
         user_id: userId,
         recipient: currentPurchase.recipient || "self",
@@ -838,7 +843,7 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
 
       const orderId = data.order_id;
       const interval = setInterval(async () => {
-        const statusRes = await fetch(`/orders/${orderId}`);
+        const statusRes = await fetch(`/orders/${orderId}`, {headers: getAuthHeaders()});
         const statusData = await statusRes.json();
         console.log("Проверка статуса:", statusData);
 
@@ -1058,7 +1063,7 @@ async function loadHistory(userId) {
   list.innerHTML = "";
 
   try {
-    const response = await fetch(`/orders/history?user_id=${userId}`);
+    const response = await fetch(`/orders/history?user_id=${userId}`, {headers: getAuthHeaders()});
     const data = await response.json();
 
     loader.style.display = "none";
@@ -1257,7 +1262,7 @@ async function initWebApp() {
   const userId = document.getElementById("user-id").textContent;
 
   try {
-    const res = await fetch(`/orders/last?user_id=${userId}`);
+    const res = await fetch(`/orders/last?user_id=${userId}`, {headers: getAuthHeaders()});
     const data = await res.json();
 
     if (data.show_success_page) {
@@ -1293,7 +1298,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // --- Инициализация WebApp ---
   const userId = document.getElementById("user-id").textContent;
   try {
-    const res = await fetch(`/orders/last?user_id=${userId}`);
+    const res = await fetch(`/orders/last?user_id=${userId}`, {headers: getAuthHeaders()});
     const data = await res.json();
 
     if (data.show_success_page) {
