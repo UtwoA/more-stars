@@ -488,22 +488,6 @@ async def robokassa_webhook(
         db.close()
 
 
-@app.get("/orders/{order_id}")
-async def order_status(order_id: str):
-    db = SessionLocal()
-    try:
-        order = db.query(Order).filter(Order.order_id == order_id).first()
-        if not order:
-            return {"error": "Order not found"}
-
-        await _sync_crypto_order_status(order, db)
-        await _sync_platega_order_status(order, db)
-        _check_order_expired(order, db)
-        return {"order_id": order.order_id, "status": order.status}
-    finally:
-        db.close()
-
-
 @app.get("/orders/last")
 async def last_order_status(user_id: str = Query(...)):
     db = SessionLocal()
@@ -590,6 +574,22 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
                 for o in orders
             ]
         }
+    finally:
+        db.close()
+
+
+@app.get("/orders/{order_id}")
+async def order_status(order_id: str):
+    db = SessionLocal()
+    try:
+        order = db.query(Order).filter(Order.order_id == order_id).first()
+        if not order:
+            return {"error": "Order not found"}
+
+        await _sync_crypto_order_status(order, db)
+        await _sync_platega_order_status(order, db)
+        _check_order_expired(order, db)
+        return {"order_id": order.order_id, "status": order.status}
     finally:
         db.close()
 
