@@ -801,14 +801,26 @@ async function startPlategaPayment(paymentMethod) {
       })
     });
 
-    const data = await response.json();
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (e) {
+      const raw = await response.text();
+      console.error("Platega non-JSON response:", raw);
+      throw new Error("Invalid response from server");
+    }
     console.log("Создан заказ:", data);
 
     const payUrl = data?.redirect;
     if (payUrl) {
-      if (window.Telegram?.WebApp?.openTelegramLink) {
-        window.Telegram.WebApp.openTelegramLink(payUrl);
-      } else {
+      try {
+        if (window.Telegram?.WebApp?.openTelegramLink) {
+          window.Telegram.WebApp.openTelegramLink(payUrl);
+        } else {
+          window.open(payUrl, "_blank");
+        }
+      } catch (e) {
+        console.error("openTelegramLink failed, fallback to window.open", e);
         window.open(payUrl, "_blank");
       }
 
@@ -828,6 +840,7 @@ async function startPlategaPayment(paymentMethod) {
         }
       }, 5000);
     } else {
+      console.error("Platega response missing redirect", data);
       alert("Ошибка при создании платежа");
     }
   } catch (err) {
