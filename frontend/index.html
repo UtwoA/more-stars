@@ -918,6 +918,16 @@ function openPaymentPage(pkg) {
   // Сумма
   document.getElementById("payment-amount").textContent = `${pkg.price}`;
 
+  const isStars = pkg.product_type === "stars";
+  ["pay-cryptobot", "pay-sbp", "pay-card"].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.style.display = "inline-flex";
+    btn.disabled = !isStars;
+    btn.style.opacity = isStars ? "1" : "0.5";
+    btn.style.pointerEvents = isStars ? "auto" : "none";
+  });
+
   switchPage("payment-page");
 }
 
