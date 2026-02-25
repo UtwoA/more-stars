@@ -427,6 +427,10 @@
                       style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
                 CryptoBot
               </button>
+              <button class="btn" id="pay-card"
+                      style="background:linear-gradient(135deg,#1b1f28,#0f1115)" data-i18n="card">
+                Card
+              </button>
               <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
                 СБП (Российские банки)
               </button>
@@ -606,7 +610,8 @@ const translations = {
       // Payment
       purchase: "Покупка",
       crypto_bot: "CryptoBot",
-      sbp: "СБП (скоро)",
+      sbp: "СБП",
+      card: "Карта",
 
       // Success
       payment_successful: "Оплата прошла успешно! 🎉",
@@ -655,7 +660,8 @@ const translations = {
       // Payment
       purchase: "Purchase",
       crypto_bot: "CryptoBot",
-      sbp: "SBP (coming soon)",
+      sbp: "SBP",
+      card: "Card",
 
       // Success
       payment_successful: "Payment successful! 🎉",
@@ -752,12 +758,71 @@ document.getElementById("pay-cryptobot").onclick = async () => {
   }
 };
 
-document.getElementById("pay-sbp").onclick = () => {
-  const message = currentLang === "ru"
-    ? "Оплата через СБП скоро будет добавлена."
-    : "SBP payment will be added soon.";
-  alert(message);
-};
+async function startPlategaPayment(paymentMethod) {
+  if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
+  if (currentPurchase.product_type !== "stars") {
+    const msg = currentLang === "ru"
+      ? "Сейчас доступна оплата только для Stars."
+      : "Only Stars payments are available right now.";
+    alert(msg);
+    return;
+  }
+
+  try {
+    const userId = document.getElementById("user-id").textContent || "0";
+    const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
+    const response = await fetch("/orders/platega", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        user_id: userId,
+        recipient: currentPurchase.recipient || "self",
+        product_type: currentPurchase.product_type,
+        quantity: currentPurchase.quantity || null,
+        months: currentPurchase.months || null,
+        amount: currentPurchase.amount || null,
+        amount_rub: amountValue,
+        payment_method: paymentMethod
+      })
+    });
+
+    const data = await response.json();
+    console.log("Создан заказ:", data);
+
+    const payUrl = data?.redirect;
+    if (payUrl) {
+      if (window.Telegram?.WebApp?.openTelegramLink) {
+        window.Telegram.WebApp.openTelegramLink(payUrl);
+      } else {
+        window.open(payUrl, "_blank");
+      }
+
+      const orderId = data.order_id;
+      const interval = setInterval(async () => {
+        const statusRes = await fetch(`/orders/${orderId}`);
+        const statusData = await statusRes.json();
+        console.log("Проверка статуса:", statusData);
+
+        if (statusData.status === "paid") {
+          clearInterval(interval);
+          openSuccessPage(currentPurchase);
+        }
+        if (statusData.status === "failed") {
+          clearInterval(interval);
+          openFailurePage(currentPurchase);
+        }
+      }, 5000);
+    } else {
+      alert("Ошибка при создании платежа");
+    }
+  } catch (err) {
+    console.error("Ошибка оплаты через СБП:", err);
+    alert("Не удалось создать платеж. Попробуйте еще раз.");
+  }
+}
+
+document.getElementById("pay-sbp").onclick = () => startPlategaPayment(2);
+document.getElementById("pay-card").onclick = () => startPlategaPayment(11);
 
 // Кнопка после удачной оплаты
 document.getElementById("success-back").addEventListener("click", () => {

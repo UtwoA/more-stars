@@ -27,6 +27,12 @@ load_dotenv()
 CRYPTO_PAY_API_URL = os.getenv("CRYPTO_PAY_API_URL", "https://testnet-pay.crypt.bot/api/createInvoice")
 CRYPTOBOT_TOKEN = os.getenv("CRYPTOBOT_TOKEN")
 CRYPTO_PAY_GET_INVOICES_URL = f"{CRYPTO_PAY_API_URL.rsplit('/', 1)[0]}/getInvoices"
+PLATEGA_BASE_URL = os.getenv("PLATEGA_BASE_URL", "https://app.platega.io")
+PLATEGA_MERCHANT_ID = os.getenv("PLATEGA_MERCHANT_ID")
+PLATEGA_SECRET = os.getenv("PLATEGA_SECRET")
+PLATEGA_PAYMENT_METHOD = int(os.getenv("PLATEGA_PAYMENT_METHOD", "2"))
+PLATEGA_RETURN_URL = os.getenv("PLATEGA_RETURN_URL")
+PLATEGA_FAIL_URL = os.getenv("PLATEGA_FAIL_URL")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -85,6 +91,10 @@ class FragmentOrderCreate(OrderCreateBase):
     pass
 
 
+class PlategaOrderCreate(OrderCreateBase):
+    payment_method: int | None = None
+
+
 def _product_label(order: Order) -> str:
     if order.product_type == "stars":
         return f"Stars x{order.quantity}"
@@ -128,6 +138,62 @@ async def _create_crypto_invoice(amount: float, currency: str, order_id: str, re
         return r.json()
 
 
+async def _create_platega_payment(amount_rub: float, order_id: str) -> dict:
+    return await _create_platega_payment_with_method(amount_rub, order_id, PLATEGA_PAYMENT_METHOD)
+
+
+async def _create_platega_payment_with_method(amount_rub: float, order_id: str, payment_method: int) -> dict:
+    if not PLATEGA_MERCHANT_ID or not PLATEGA_SECRET:
+        raise RuntimeError("PLATEGA_MERCHANT_ID or PLATEGA_SECRET is not set")
+
+    payload = {
+        "paymentMethod": payment_method,
+        "paymentDetails": {"amount": amount_rub, "currency": "RUB"},
+        "description": f"Order {order_id}",
+        "payload": order_id
+    }
+    if PLATEGA_RETURN_URL:
+        payload["return"] = PLATEGA_RETURN_URL
+    if PLATEGA_FAIL_URL:
+        payload["failedUrl"] = PLATEGA_FAIL_URL
+
+    headers = {
+        "X-MerchantId": PLATEGA_MERCHANT_ID,
+        "X-Secret": PLATEGA_SECRET,
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{PLATEGA_BASE_URL}/transaction/process",
+            json=payload,
+            headers=headers,
+            timeout=20
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def _get_platega_status(transaction_id: str) -> dict:
+    if not PLATEGA_MERCHANT_ID or not PLATEGA_SECRET:
+        raise RuntimeError("PLATEGA_MERCHANT_ID or PLATEGA_SECRET is not set")
+
+    headers = {
+        "X-MerchantId": PLATEGA_MERCHANT_ID,
+        "X-Secret": PLATEGA_SECRET,
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{PLATEGA_BASE_URL}/transaction/{transaction_id}",
+            headers=headers,
+            timeout=20
+        )
+        r.raise_for_status()
+        return r.json()
+
+
 async def _sync_crypto_order_status(order: Order, db) -> None:
     # Fallback: if webhook is not received, sync invoice status directly from Crypto Pay API.
     if order.payment_provider != "crypto" or order.status in ("paid", "failed"):
@@ -166,6 +232,33 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
         order.status = "failed"
         db.commit()
 
+
+async def _sync_platega_order_status(order: Order, db) -> None:
+    if order.payment_provider != "platega" or order.status in ("paid", "failed"):
+        return
+    if not order.payment_invoice_id:
+        return
+
+    try:
+        payload = await _get_platega_status(order.payment_invoice_id)
+    except Exception:
+        logger.exception("[PLATEGA] Failed to sync payment status for order %s", order.order_id)
+        return
+
+    status = (payload.get("status") or "").upper()
+    if status == "CONFIRMED":
+        order.status = "paid"
+        db.commit()
+        try:
+            await send_purchase_to_fragment(order)
+            await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
+        except Exception:
+            logger.exception("[FRAGMENT] Failed to send purchase")
+            order.status = "failed"
+            db.commit()
+    elif status in ("CANCELED", "CHARGEBACKED"):
+        order.status = "failed"
+        db.commit()
 
 def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | None = None) -> Order:
     order_id = str(uuid.uuid4())
@@ -235,6 +328,42 @@ async def create_order_robokassa(order: RobokassaOrderCreate):
     raise HTTPException(status_code=503, detail="SBP/Robokassa payment is temporarily unavailable")
 
 
+@app.post("/orders/platega")
+async def create_order_platega(order: PlategaOrderCreate):
+    if order.product_type != "stars":
+        raise HTTPException(status_code=400, detail="Only Stars are supported right now")
+
+    payment_method = order.payment_method or PLATEGA_PAYMENT_METHOD
+    if payment_method not in (2, 11):
+        raise HTTPException(status_code=400, detail="Unsupported payment method")
+
+    db = SessionLocal()
+    try:
+        db_order = _create_order(db, order, provider="platega", currency="RUB")
+        payment = await _create_platega_payment_with_method(
+            db_order.amount_rub,
+            db_order.order_id,
+            payment_method
+        )
+
+        transaction_id = payment.get("transactionId")
+        if not transaction_id:
+            raise RuntimeError("Platega did not return transactionId")
+
+        db_order.payment_invoice_id = transaction_id
+        db_order.payment_url = payment.get("redirect")
+        db.commit()
+
+        return {
+            "order_id": db_order.order_id,
+            "status": db_order.status,
+            "redirect": db_order.payment_url,
+            "platega": payment
+        }
+    finally:
+        db.close()
+
+
 @app.post("/orders/fragment")
 async def create_order_fragment(order: FragmentOrderCreate):
     db = SessionLocal()
@@ -300,6 +429,48 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
     return {"status": "ok"}
 
 
+@app.post("/webhook/platega")
+async def platega_webhook(request: Request):
+    merchant_id = request.headers.get("X-MerchantId")
+    secret = request.headers.get("X-Secret")
+    if not merchant_id or not secret:
+        raise HTTPException(status_code=400, detail="Missing X-MerchantId or X-Secret")
+    if merchant_id != PLATEGA_MERCHANT_ID or secret != PLATEGA_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid credentials")
+
+    data = await request.json()
+    logger.info("WEBHOOK PLATEGA DATA: %s", json.dumps(data))
+
+    transaction_id = data.get("id")
+    status = (data.get("status") or "").upper()
+    if not transaction_id:
+        return {"status": "error", "message": "No transaction id"}
+
+    db = SessionLocal()
+    try:
+        order = db.query(Order).filter(Order.payment_invoice_id == transaction_id).first()
+        if not order:
+            return {"status": "error", "message": "Order not found"}
+
+        if status == "CONFIRMED" and order.status != "paid":
+            order.status = "paid"
+            db.commit()
+            try:
+                await send_purchase_to_fragment(order)
+                await send_user_message(chat_id=int(order.user_id), product_name=_product_label(order))
+            except Exception:
+                logger.exception("[FRAGMENT] Failed to send purchase")
+                order.status = "failed"
+                db.commit()
+        elif status in ("CANCELED", "CHARGEBACKED"):
+            order.status = "failed"
+            db.commit()
+    finally:
+        db.close()
+
+    return {"status": "ok"}
+
+
 @app.post("/webhook/robokassa")
 async def robokassa_webhook(
         OutSum: str = Query(...),
@@ -341,6 +512,7 @@ async def order_status(order_id: str):
             return {"error": "Order not found"}
 
         await _sync_crypto_order_status(order, db)
+        await _sync_platega_order_status(order, db)
         _check_order_expired(order, db)
         return {"order_id": order.order_id, "status": order.status}
     finally:
@@ -362,6 +534,7 @@ async def last_order_status(user_id: str = Query(...)):
             return {"status": "none"}
 
         await _sync_crypto_order_status(order, db)
+        await _sync_platega_order_status(order, db)
         result = {
             "order_id": order.order_id,
             "status": order.status,
@@ -404,6 +577,7 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
         # Keep history statuses fresh even if webhook is delayed/missed.
         for order in orders:
             await _sync_crypto_order_status(order, db)
+            await _sync_platega_order_status(order, db)
             _check_order_expired(order, db)
 
         orders = (
