@@ -569,11 +569,21 @@ async def create_order_platega(order: PlategaOrderCreate):
     db = SessionLocal()
     try:
         db_order = _create_order(db, order, provider="platega", currency="RUB")
-        payment = await _create_platega_payment_with_method(
-            db_order.amount_rub,
-            db_order.order_id,
-            payment_method
-        )
+        try:
+            payment = await _create_platega_payment_with_method(
+                db_order.amount_rub,
+                db_order.order_id,
+                payment_method
+            )
+        except httpx.HTTPStatusError as exc:
+            detail = "Platega error"
+            if exc.response is not None:
+                detail = exc.response.text
+            logger.error("[PLATEGA] Create payment failed: %s", detail)
+            raise HTTPException(status_code=502, detail=detail)
+        except httpx.ReadTimeout:
+            logger.error("[PLATEGA] Create payment timed out")
+            raise HTTPException(status_code=504, detail="Platega timeout")
 
         transaction_id = payment.get("transactionId")
         if not transaction_id:
