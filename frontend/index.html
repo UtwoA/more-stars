@@ -976,18 +976,25 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
   const code = (input.value || "").trim().toUpperCase();
   if (!code) return;
 
-  let data = null;
+  let res;
   try {
-    data = await fetchJsonWithAuth(`/promo/validate?code=${encodeURIComponent(code)}`, {headers: getAuthHeaders()});
+    res = await fetch(`/promo/validate?code=${encodeURIComponent(code)}`, {headers: getAuthHeaders()});
   } catch (e) {
-    data = null;
+    res = null;
   }
-  if (!data) {
+  if (!res) {
     status.textContent = currentLang === "ru"
-      ? "Промокод недоступен: ошибка авторизации или сервера."
-      : "Promo unavailable: auth or server error.";
+      ? "Промокод недоступен: сеть недоступна."
+      : "Promo unavailable: network error.";
     return;
   }
+  if (!res.ok) {
+    status.textContent = currentLang === "ru"
+      ? `Промокод недоступен: ошибка ${res.status}.`
+      : `Promo unavailable: error ${res.status}.`;
+    return;
+  }
+  const data = await res.json();
   if (!data.valid) {
     status.textContent = translations[currentLang]?.promo_invalid || "Invalid promo code";
     return;
