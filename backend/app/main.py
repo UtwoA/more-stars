@@ -803,7 +803,7 @@ async def create_order_crypto(order: CryptoOrderCreate):
     try:
         amount_rub = _stars_base_price(order.quantity or 0)
         promo_percent = 0
-    if order.promo_code:
+        if order.promo_code:
             reservation = _get_active_reservation(order.promo_code, order.user_id, db)
             if not reservation:
                 raise HTTPException(status_code=400, detail="Invalid or expired promo")
