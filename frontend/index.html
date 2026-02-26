@@ -1001,7 +1001,15 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
       : `Promo unavailable: error ${res.status}.`;
     return;
   }
-  const data = await res.json();
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (e) {
+    status.textContent = currentLang === "ru"
+      ? "Промокод недоступен: сервер вернул не JSON (проверь прокси /promo/validate)."
+      : "Promo unavailable: server returned non-JSON (check /promo/validate proxy).";
+    return;
+  }
   if (!data.valid) {
     status.textContent = translations[currentLang]?.promo_invalid || "Invalid promo code";
     return;
