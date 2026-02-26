@@ -1035,10 +1035,17 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
 
 // Кнопка "Себе"
 document.getElementById('to-self').addEventListener('click', () => {
-  let selfUser = '@unknown';
+  let selfUser = null;
   if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
     const user = Telegram.WebApp.initDataUnsafe.user;
-    selfUser = user.username ? `@${user.username}` : (user.first_name || 'Пользователь');
+    if (user.username) selfUser = `@${user.username}`;
+  }
+  if (!selfUser) {
+    const msg = currentLang === "ru"
+      ? "Для покупки себе нужен Telegram username. Установите username в настройках Telegram."
+      : "A Telegram username is required to buy for yourself. Set a username in Telegram settings.";
+    alert(msg);
+    return;
   }
   proceedToPayment(selfUser);
 });
@@ -1381,7 +1388,7 @@ function openRecipientPage(pkg) {
 function isValidTelegramUsername(val) {
   if (!val) return false;
   val = val.startsWith('@') ? val.slice(1) : val;
-  return /^[a-zA-Z0-9_]{3,32}$/.test(val);
+  return /^[a-zA-Z0-9_]{5,32}$/.test(val);
 }
 
 function proceedToPayment(recipient) {
