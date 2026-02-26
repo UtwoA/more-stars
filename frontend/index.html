@@ -975,6 +975,7 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
   const status = document.getElementById("promo-status");
   const code = (input.value || "").trim().toUpperCase();
   if (!code) return;
+  status.textContent = currentLang === "ru" ? "Проверяем промокод..." : "Checking promo...";
 
   let res;
   try {
