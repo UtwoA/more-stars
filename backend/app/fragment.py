@@ -38,6 +38,8 @@ TONCENTER_BASE_URL = os.getenv("TONCENTER_BASE_URL")
 
 def _load_fragment_cookies() -> dict:
     if FRAGMENT_COOKIES_JSON:
+        if not os.path.isfile(FRAGMENT_COOKIES_JSON):
+            raise RuntimeError(f"FRAGMENT_COOKIES_JSON is not a file: {FRAGMENT_COOKIES_JSON}")
         with open(FRAGMENT_COOKIES_JSON, "r", encoding="utf-8") as f:
             raw = json.load(f)
             if isinstance(raw, list):
