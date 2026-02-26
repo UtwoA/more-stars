@@ -7,7 +7,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <link rel="preload" as="image" href="icon-1.png" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
+    <style>
+      .fee-label { font-size: 12px; color: var(--muted); margin-top: -2px; margin-bottom: 6px; }
     :root{
       --bg-1: #0e0f12;
       --bg-2: #131518;
@@ -425,16 +426,28 @@
 
             <div class="actions">
               <button class="btn" id="pay-cryptobot"
-                      style="background:linear-gradient(135deg,#0088cc,#004c80)" data-i18n="crypto_bot">
+                      style="background:linear-gradient(135deg,#00a3ff,#0061a8)" data-i18n="crypto_bot">
                 CryptoBot
               </button>
+              <div class="fee-label">Комиссия 3%</div>
+
               <button class="btn" id="pay-card"
-                      style="background:linear-gradient(135deg,#1b1f28,#0f1115)" data-i18n="card">
+                      style="background:linear-gradient(135deg,#ff7a18,#d64a00)" data-i18n="card">
                 Card
               </button>
-              <button class="btn secondary" id="pay-sbp" data-i18n="sbp">
+              <div class="fee-label">Комиссия 9%</div>
+
+              <button class="btn secondary" id="pay-sbp"
+                      style="border-color:#2bb673;color:#2bb673" data-i18n="sbp">
                 СБП (Российские банки)
               </button>
+              <div class="fee-label">Комиссия 8%</div>
+
+              <button class="btn secondary" id="pay-ton" disabled
+                      style="border-color:#7a7a7a;color:#7a7a7a" data-i18n="ton_pay">
+                TON (скоро)
+              </button>
+              <div class="fee-label">Комиссия 0%</div>
             </div>
             <div id="payment-link" style="display:none;margin-top:12px;font-size:12px;">
               <div id="payment-method-label" style="color:var(--muted);margin-bottom:6px;">Выбранный способ оплаты: —</div>
@@ -619,6 +632,7 @@ const translations = {
       crypto_bot: "CryptoBot",
       sbp: "СБП",
       card: "Карта",
+      ton_pay: "TON (скоро)",
 
       // Success
       payment_successful: "Оплата прошла успешно! 🎉",
@@ -669,6 +683,7 @@ const translations = {
       crypto_bot: "CryptoBot",
       sbp: "SBP",
       card: "Card",
+      ton_pay: "TON (soon)",
 
       // Success
       payment_successful: "Payment successful! 🎉",
@@ -807,6 +822,13 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
     const userId = getNumericUserId();
     if (!userId) return;
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
+    const paymentLink = document.getElementById("payment-link");
+    const paymentMethodLabelEl = document.getElementById("payment-method-label");
+    if (paymentLink && paymentMethodLabelEl) {
+      paymentMethodLabelEl.textContent = `Выбранный способ оплаты: ${paymentLabel}. Ссылка генерируется...`;
+      paymentLink.style.display = "block";
+    }
+
     const response = await fetch("/orders/platega", {
       method: "POST",
       headers: {"Content-Type": "application/json", ...getAuthHeaders()},
