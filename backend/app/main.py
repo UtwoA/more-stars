@@ -280,6 +280,8 @@ _rate_limiter = _RateLimiter(RATE_LIMIT_PER_MIN)
 @app.middleware("http")
 async def auth_and_rate_limit(request: Request, call_next):
     path = request.url.path
+    if path.startswith("/promo/validate"):
+        return await call_next(request)
     if path.startswith("/webhook/"):
         return await call_next(request)
 
