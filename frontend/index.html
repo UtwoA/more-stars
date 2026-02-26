@@ -339,6 +339,7 @@
       <div style="font-weight:800;margin-bottom:8px" data-i18n="referral_system">Реферальная система</div>
       <div class="label" data-i18n="your_link">Ваша ссылка</div>
       <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);word-break:break-all">—</a>
+      <button id="ref-share" class="btn secondary" style="margin-top:10px;" data-i18n="share_ref">Поделиться</button>
       <div style="margin-top:12px"><div class="label" data-i18n="invited">Приглашено</div><div class="value" id="ref-count">0</div></div>
       <div style="margin-top:12px"><div class="label" data-i18n="ref_balance">Баланс звёзд</div><div class="value" id="ref-balance">0</div></div>
     </div>
@@ -626,6 +627,7 @@ const translations = {
       language: "Язык",
       referral_system: "Реферальная система",
       your_link: "Ваша ссылка",
+      share_ref: "Поделиться",
       invited: "Приглашено",
       ref_balance: "Баланс звёзд",
       contact_us: "Связаться с нами",
@@ -685,6 +687,7 @@ const translations = {
       language: "Language",
       referral_system: "Referral system",
       your_link: "Your link",
+      share_ref: "Share",
       invited: "Invited",
       ref_balance: "Stars balance",
       contact_us: "Contact us",
@@ -1200,6 +1203,46 @@ function setUserFromTelegram(){
   }catch(e){ console.warn('Telegram init read error',e); }
 }
 setUserFromTelegram();
+
+function shareReferralLink() {
+  const linkEl = document.getElementById('ref-link');
+  const link = linkEl?.href || "";
+  if (!link || link === "#") {
+    const msg = currentLang === "ru"
+      ? "Сначала откройте приложение в Telegram."
+      : "Please open the app in Telegram first.";
+    alert(msg);
+    return;
+  }
+  const text = currentLang === "ru"
+    ? "Присоединяйся к More Stars — звезды дешевле по моей ссылке."
+    : "Join More Stars — get Stars for less with my link.";
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
+
+  if (window.Telegram?.WebApp?.openTelegramLink) {
+    window.Telegram.WebApp.openTelegramLink(shareUrl);
+    return;
+  }
+  if (navigator.share) {
+    navigator.share({ text, url: link }).catch(() => {});
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(`${text} ${link}`).then(() => {
+      const msg = currentLang === "ru"
+        ? "Ссылка скопирована."
+        : "Link copied.";
+      alert(msg);
+    });
+    return;
+  }
+  window.open(shareUrl, "_blank");
+}
+
+const refShareBtn = document.getElementById('ref-share');
+if (refShareBtn) {
+  refShareBtn.addEventListener('click', shareReferralLink);
+}
 
 function formatOrderProduct(order) {
   if (order.product_type === "stars" && order.quantity) {
