@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from .crypto_pay import verify_signature
 from .crypto import convert_rub_to_crypto
 from .database import SessionLocal, Base, engine
-from .models import Order
+from .models import Order, User, PromoCode, PromoRedemption, ReferralEarning, PaymentTransaction
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
@@ -45,6 +45,7 @@ PLATEGA_WEBHOOK_TOKEN = os.getenv("PLATEGA_WEBHOOK_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 MINI_APP_URL = os.getenv("MINI_APP_URL")
+REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -61,6 +62,10 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_in_progress BOOLEAN"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_attempts INTEGER"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_last_error VARCHAR"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code VARCHAR"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_percent INTEGER"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_redeemed BOOLEAN"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_rub_original FLOAT"))
     conn.execute(
         text(
             """
@@ -73,6 +78,60 @@ with engine.begin() as conn:
                 amount FLOAT,
                 currency VARCHAR,
                 raw_response TEXT,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                user_id VARCHAR PRIMARY KEY,
+                referrer_id VARCHAR,
+                referral_balance_stars INTEGER DEFAULT 0,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                code VARCHAR PRIMARY KEY,
+                percent INTEGER NOT NULL,
+                max_uses INTEGER,
+                uses INTEGER DEFAULT 0,
+                active BOOLEAN DEFAULT TRUE,
+                expires_at TIMESTAMPTZ
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS promo_redemptions (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR,
+                user_id VARCHAR,
+                order_id VARCHAR,
+                percent INTEGER,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS referral_earnings (
+                id SERIAL PRIMARY KEY,
+                referrer_id VARCHAR,
+                referred_user_id VARCHAR,
+                order_id VARCHAR,
+                stars INTEGER,
                 created_at TIMESTAMPTZ DEFAULT now()
             )
             """
@@ -132,6 +191,7 @@ class OrderCreateBase(BaseModel):
 
 class CryptoOrderCreate(OrderCreateBase):
     currency: str  # TON / USDT
+    promo_code: str | None = None
 
 
 class RobokassaOrderCreate(OrderCreateBase):
@@ -140,6 +200,7 @@ class RobokassaOrderCreate(OrderCreateBase):
 
 class PlategaOrderCreate(OrderCreateBase):
     payment_method: int | None = None
+    promo_code: str | None = None
 
 
 def _product_label(order: Order) -> str:
@@ -378,6 +439,34 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     order.fragment_in_progress = False
     db.commit()
 
+    if order.promo_code and not order.promo_redeemed:
+        promo = _load_promo(order.promo_code, db)
+        if promo:
+            promo.uses = (promo.uses or 0) + 1
+            redemption = PromoRedemption(
+                code=promo.code,
+                user_id=order.user_id,
+                order_id=order.order_id,
+                percent=promo.percent
+            )
+            order.promo_redeemed = True
+            db.add(redemption)
+            db.commit()
+
+    user = db.query(User).filter(User.user_id == order.user_id).first()
+    if user and user.referrer_id and order.quantity:
+        bonus = int(order.quantity * REFERRAL_PERCENT / 100)
+        if bonus > 0:
+            user.referral_balance_stars = (user.referral_balance_stars or 0) + bonus
+            earning = ReferralEarning(
+                referrer_id=user.referrer_id,
+                referred_user_id=order.user_id,
+                order_id=order.order_id,
+                stars=bonus
+            )
+            db.add(earning)
+            db.commit()
+
 
 def _extract_order_id(data: dict) -> str | None:
     if isinstance(data.get("payload"), str):
@@ -385,6 +474,27 @@ def _extract_order_id(data: dict) -> str | None:
     if isinstance(data.get("payload"), dict):
         return data.get("payload", {}).get("payload") or data.get("payload", {}).get("order_id")
     return data.get("order_id")
+
+
+def _stars_base_price(quantity: int) -> float:
+    if quantity <= 1000:
+        return quantity * 1.39
+    if quantity <= 5000:
+        return quantity * 1.37
+    return quantity * 1.35
+
+
+def _load_promo(code: str, db) -> PromoCode | None:
+    promo = db.query(PromoCode).filter(PromoCode.code == code.upper()).first()
+    if not promo:
+        return None
+    if not promo.active:
+        return None
+    if promo.expires_at and promo.expires_at < now_msk():
+        return None
+    if promo.max_uses is not None and promo.uses >= promo.max_uses:
+        return None
+    return promo
 
 
 async def _create_crypto_invoice(amount: float, currency: str, order_id: str, recipient: str) -> dict:
@@ -579,6 +689,7 @@ def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | 
         months=order_in.months,
         amount=order_in.amount,
         amount_rub=order_in.amount_rub,
+        amount_rub_original=order_in.amount_rub,
         currency=currency or "RUB",
         status="created",
         payment_provider=provider,
@@ -603,11 +714,26 @@ def _check_order_expired(order: Order, db):
 async def create_order_crypto(order: CryptoOrderCreate):
     if order.product_type != "stars":
         raise HTTPException(status_code=400, detail="Only Stars are supported right now")
-    amount_crypto = await convert_rub_to_crypto(order.amount_rub, order.currency)
-
     db = SessionLocal()
     try:
+        amount_rub = _stars_base_price(order.quantity or 0)
+        promo_percent = 0
+        if order.promo_code:
+            promo = _load_promo(order.promo_code, db)
+            if not promo:
+                raise HTTPException(status_code=400, detail="Invalid promo code")
+            promo_percent = promo.percent
+            amount_rub = amount_rub * (1 - promo_percent / 100)
+        order.amount_rub = amount_rub
+        amount_crypto = await convert_rub_to_crypto(amount_rub, order.currency)
+
         db_order = _create_order(db, order, provider="crypto", currency=order.currency)
+        if order.promo_code and promo_percent:
+            db_order.promo_code = order.promo_code.upper()
+            db_order.promo_percent = promo_percent
+            db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
+            db_order.amount_rub = amount_rub
+            db.commit()
 
         invoice = await _create_crypto_invoice(
             amount_crypto,
@@ -646,7 +772,23 @@ async def create_order_platega(order: PlategaOrderCreate):
 
     db = SessionLocal()
     try:
+        amount_rub = _stars_base_price(order.quantity or 0)
+        promo_percent = 0
+        if order.promo_code:
+            promo = _load_promo(order.promo_code, db)
+            if not promo:
+                raise HTTPException(status_code=400, detail="Invalid promo code")
+            promo_percent = promo.percent
+            amount_rub = amount_rub * (1 - promo_percent / 100)
+        order.amount_rub = amount_rub
+
         db_order = _create_order(db, order, provider="platega", currency="RUB")
+        if order.promo_code and promo_percent:
+            db_order.promo_code = order.promo_code.upper()
+            db_order.promo_percent = promo_percent
+            db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
+            db_order.amount_rub = amount_rub
+            db.commit()
         try:
             payment = await _create_platega_payment_with_method(
                 db_order.amount_rub,
@@ -908,6 +1050,56 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
                 }
                 for o in orders
             ]
+        }
+    finally:
+        db.close()
+
+
+@app.get("/promo/validate")
+async def promo_validate(code: str = Query(...)):
+    db = SessionLocal()
+    try:
+        promo = _load_promo(code, db)
+        if not promo:
+            return {"valid": False}
+        return {"valid": True, "percent": promo.percent}
+    finally:
+        db.close()
+
+
+@app.post("/ref/attach")
+async def ref_attach(user_id: str = Query(...), referrer_id: str = Query(...)):
+    if user_id == referrer_id:
+        return {"status": "ok"}
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            user = User(user_id=user_id, referrer_id=referrer_id)
+            db.add(user)
+            db.commit()
+            return {"status": "ok"}
+        if not user.referrer_id:
+            user.referrer_id = referrer_id
+            db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+@app.get("/profile/summary")
+async def profile_summary(user_id: str = Query(...)):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            user = User(user_id=user_id)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return {
+            "referral_balance_stars": user.referral_balance_stars or 0,
+            "referrer_id": user.referrer_id
         }
     finally:
         db.close()

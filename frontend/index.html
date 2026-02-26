@@ -332,7 +332,6 @@
             <div><div class="label" data-i18n="language">Язык</div>
               <select id="lang-select" class="select" aria-label="Language selector"><option value="ru">Русский</option><option value="en">English</option></select>
             </div>
-            <div id="initdata-status" style="margin-top:10px;font-size:12px;color:var(--muted);">initData: —</div>
           </div>
         </div>
 
@@ -341,6 +340,15 @@
       <div class="label" data-i18n="your_link">Ваша ссылка</div>
       <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);word-break:break-all">—</a>
       <div style="margin-top:12px"><div class="label" data-i18n="invited">Приглашено</div><div class="value" id="ref-count">0</div></div>
+      <div style="margin-top:12px"><div class="label" data-i18n="ref_balance">Баланс звёзд</div><div class="value" id="ref-balance">0</div></div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800;margin-bottom:8px" data-i18n="promo_title">Промокод</div>
+      <div class="label" data-i18n="promo_enter">Введите промокод</div>
+      <input type="text" id="promo-input" class="qty" placeholder="PROMO2026" />
+      <button id="promo-apply" class="btn secondary" style="margin-top:12px;" data-i18n="promo_apply">Применить</button>
+      <div id="promo-status" style="margin-top:10px;font-size:12px;color:var(--muted);"></div>
     </div>
 
     <div class="card" style="text-align:center;">
@@ -540,6 +548,8 @@ let currentPurchase = {
   title: null,
   price: null
 };
+let promoPercent = Number(localStorage.getItem('promoPercent') || 0);
+let promoCode = localStorage.getItem('promoCode') || "";
 
 function getStarsRate(quantity) {
   if (quantity <= 1000) return 1.39;
@@ -553,7 +563,9 @@ function formatRubPrice(value) {
 }
 
 function starsPrice(quantity) {
-  return formatRubPrice(quantity * getStarsRate(quantity));
+  const base = quantity * getStarsRate(quantity);
+  const discounted = promoPercent > 0 ? base * (1 - promoPercent / 100) : base;
+  return formatRubPrice(discounted);
 }
 
 // Популярные товары на главном экране
@@ -610,6 +622,7 @@ const translations = {
       referral_system: "Реферальная система",
       your_link: "Ваша ссылка",
       invited: "Приглашено",
+      ref_balance: "Баланс звёзд",
       contact_us: "Связаться с нами",
       support: "Поддержка",
       nav_history: "История",
@@ -647,7 +660,14 @@ const translations = {
       retry: "Попробовать снова",
 
       // Карточки
-      buy: "Купить"
+      buy: "Купить",
+
+      // Promo
+      promo_title: "Промокод",
+      promo_enter: "Введите промокод",
+      promo_apply: "Применить",
+      promo_applied: "Промокод активирован: скидка",
+      promo_invalid: "Промокод недействителен"
     },
     en: {
       // History
@@ -661,6 +681,7 @@ const translations = {
       referral_system: "Referral system",
       your_link: "Your link",
       invited: "Invited",
+      ref_balance: "Stars balance",
       contact_us: "Contact us",
       support: "Support",
       nav_history: "History",
@@ -698,7 +719,14 @@ const translations = {
       retry: "Try again",
 
       // Карточки
-      buy: "Buy"
+      buy: "Buy",
+
+      // Promo
+      promo_title: "Promo code",
+      promo_enter: "Enter promo code",
+      promo_apply: "Apply",
+      promo_applied: "Promo applied: discount",
+      promo_invalid: "Invalid promo code"
     }
   };
 
@@ -746,6 +774,21 @@ async function fetchJsonWithAuth(url, options = {}) {
   return res.json();
 }
 
+function refreshStarsPricing() {
+  popularPackages.forEach(pkg => {
+    if (pkg.product_type === "stars" && pkg.quantity) {
+      pkg.price = starsPrice(pkg.quantity);
+    }
+  });
+  starsPackages.forEach(pkg => {
+    if (pkg.product_type === "stars" && pkg.quantity) {
+      pkg.price = starsPrice(pkg.quantity);
+    }
+  });
+  renderPopular();
+  renderGrid('stars-grid', starsPackages);
+}
+
 document.getElementById("pay-cryptobot").onclick = async () => {
   if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
   if (currentPurchase.product_type !== "stars") {
@@ -771,7 +814,8 @@ document.getElementById("pay-cryptobot").onclick = async () => {
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
         amount_rub: amountValue,
-        currency: "USDT"
+        currency: "USDT",
+        promo_code: promoCode || null
       })
     });
 
@@ -842,7 +886,8 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
         amount_rub: amountValue,
-        payment_method: paymentMethod
+        payment_method: paymentMethod,
+        promo_code: promoCode || null
       })
     });
 
@@ -920,6 +965,27 @@ document.getElementById("go-shop").addEventListener("click", () => {
 document.getElementById("contact-support").addEventListener("click", () => {
   // Можно открыть Telegram-чат с ботом или ссылку на поддержку
   window.open("https://t.me/more_stars_support", "_blank");
+});
+
+// Promo code
+document.getElementById("promo-apply").addEventListener("click", async () => {
+  const input = document.getElementById("promo-input");
+  const status = document.getElementById("promo-status");
+  const code = (input.value || "").trim().toUpperCase();
+  if (!code) return;
+
+  const data = await fetchJsonWithAuth(`/promo/validate?code=${encodeURIComponent(code)}`, {headers: getAuthHeaders()});
+  if (!data || !data.valid) {
+    status.textContent = translations[currentLang]?.promo_invalid || "Invalid promo code";
+    return;
+  }
+
+  promoPercent = data.percent || 0;
+  promoCode = code;
+  localStorage.setItem("promoPercent", String(promoPercent));
+  localStorage.setItem("promoCode", promoCode);
+  status.textContent = `${translations[currentLang]?.promo_applied || "Promo applied"} ${promoPercent}%`;
+  refreshStarsPricing();
 });
 
 // Кнопка "Себе"
@@ -1055,9 +1121,12 @@ function setUserFromTelegram(){
         uid.textContent=user.id||'';
         ref.textContent=`https://t.me/more_stars_bot?start=${user.id}`;
         ref.href=`https://t.me/more_stars_bot?start=${user.id}`;
-        const initDataLen = (window.Telegram?.WebApp?.initData || "").length;
-        const initEl = document.getElementById("initdata-status");
-        if (initEl) initEl.textContent = `initData: ${initDataLen > 0 ? "OK" : "EMPTY"}`;
+        // attach referral if present
+        const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+        if (startParam) {
+          fetch(`/ref/attach?user_id=${user.id}&referrer_id=${encodeURIComponent(startParam)}`, {method: "POST", headers: getAuthHeaders()})
+            .catch(() => {});
+        }
 
         if(user.photo_url){
           const i=new Image();
@@ -1073,8 +1142,6 @@ function setUserFromTelegram(){
       document.getElementById('ref-link').textContent='https://t.me/more_stars_bot?start=123456';
       document.getElementById('ref-link').href='https://t.me/more_stars_bot?start=123456';
       avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=D'; avatar.classList.remove('skeleton');
-      const initEl = document.getElementById("initdata-status");
-      if (initEl) initEl.textContent = "initData: NONE";
     }
   }catch(e){ console.warn('Telegram init read error',e); }
 }
@@ -1160,6 +1227,16 @@ function loadUserHistory() {
   } catch(e){ console.warn('Telegram init read error', e); }
 }
 loadUserHistory();
+
+async function loadProfileSummary() {
+  const userId = document.getElementById("user-id").textContent || "";
+  if (!userId) return;
+  const data = await fetchJsonWithAuth(`/profile/summary?user_id=${userId}`, {headers: getAuthHeaders()});
+  if (!data) return;
+  const balance = document.getElementById("ref-balance");
+  if (balance) balance.textContent = String(data.referral_balance_stars || 0);
+}
+loadProfileSummary();
 
 // Рендер Stars и Premium
 function renderGrid(gridId, packages){
@@ -1374,6 +1451,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   const savedLang = localStorage.getItem('lang') || currentLang;
   langSelect.value = savedLang;
   setLanguage(savedLang);
+  loadProfileSummary();
+  refreshStarsPricing();
 
 
 
