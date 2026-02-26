@@ -979,14 +979,20 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
 
   let res;
   try {
-    res = await fetch(`/promo/validate?code=${encodeURIComponent(code)}`, {headers: getAuthHeaders()});
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    res = await fetch(`/promo/validate?code=${encodeURIComponent(code)}`, {
+      headers: getAuthHeaders(),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
   } catch (e) {
     res = null;
   }
   if (!res) {
     status.textContent = currentLang === "ru"
-      ? "Промокод недоступен: сеть недоступна."
-      : "Promo unavailable: network error.";
+      ? "Промокод недоступен: таймаут/сеть."
+      : "Promo unavailable: timeout/network.";
     return;
   }
   if (!res.ok) {
