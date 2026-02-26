@@ -974,8 +974,19 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
   const code = (input.value || "").trim().toUpperCase();
   if (!code) return;
 
-  const data = await fetchJsonWithAuth(`/promo/validate?code=${encodeURIComponent(code)}`, {headers: getAuthHeaders()});
-  if (!data || !data.valid) {
+  let data = null;
+  try {
+    data = await fetchJsonWithAuth(`/promo/validate?code=${encodeURIComponent(code)}`, {headers: getAuthHeaders()});
+  } catch (e) {
+    data = null;
+  }
+  if (!data) {
+    status.textContent = currentLang === "ru"
+      ? "Промокод недоступен: ошибка авторизации или сервера."
+      : "Promo unavailable: auth or server error.";
+    return;
+  }
+  if (!data.valid) {
     status.textContent = translations[currentLang]?.promo_invalid || "Invalid promo code";
     return;
   }
