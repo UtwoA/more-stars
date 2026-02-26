@@ -356,6 +356,7 @@
       <button id="contact-support" class="btn" style="margin-top: 12px;" data-i18n="support">
         Поддержка
       </button>
+      <div id="build-version" style="margin-top:10px;font-size:11px;color:var(--muted);">Build: —</div>
     </div>
   </div>
 
@@ -548,6 +549,7 @@ let currentPurchase = {
   title: null,
   price: null
 };
+const BUILD_VERSION = "2026-02-26-01";
 let promoPercent = Number(localStorage.getItem('promoPercent') || 0);
 let promoCode = localStorage.getItem('promoCode') || "";
 
@@ -1154,6 +1156,8 @@ function setUserFromTelegram(){
       document.getElementById('ref-link').href='https://t.me/more_stars_bot?start=123456';
       avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=D'; avatar.classList.remove('skeleton');
     }
+    const buildEl = document.getElementById("build-version");
+    if (buildEl) buildEl.textContent = `Build: ${BUILD_VERSION}`;
   }catch(e){ console.warn('Telegram init read error',e); }
 }
 setUserFromTelegram();
