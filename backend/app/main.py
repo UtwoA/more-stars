@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from .crypto_pay import verify_signature
 from .crypto import convert_rub_to_crypto
 from .database import SessionLocal, Base, engine
-from .models import Order, User, PromoCode, PromoRedemption, ReferralEarning, PaymentTransaction
+from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
@@ -118,6 +118,21 @@ with engine.begin() as conn:
                 user_id VARCHAR,
                 order_id VARCHAR,
                 percent INTEGER,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS promo_reservations (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR,
+                user_id VARCHAR,
+                percent INTEGER,
+                order_id VARCHAR,
+                expires_at TIMESTAMPTZ NOT NULL,
                 created_at TIMESTAMPTZ DEFAULT now()
             )
             """
@@ -453,6 +468,10 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
             )
             order.promo_redeemed = True
             db.add(redemption)
+            db.query(PromoReservation).filter(
+                PromoReservation.code == promo.code,
+                PromoReservation.user_id == order.user_id
+            ).delete()
             db.commit()
 
     user = db.query(User).filter(User.user_id == order.user_id).first()
@@ -497,6 +516,67 @@ def _load_promo(code: str, db) -> PromoCode | None:
     if promo.max_uses is not None and promo.uses >= promo.max_uses:
         return None
     return promo
+
+
+def _get_active_reservation(code: str, user_id: str, db) -> PromoReservation | None:
+    now = now_msk()
+    return db.query(PromoReservation).filter(
+        PromoReservation.code == code.upper(),
+        PromoReservation.user_id == user_id,
+        PromoReservation.expires_at > now
+    ).first()
+
+
+def _promo_used_by_user(code: str, user_id: str, db) -> bool:
+    return db.query(PromoRedemption).filter(
+        PromoRedemption.code == code.upper(),
+        PromoRedemption.user_id == user_id
+    ).first() is not None
+
+
+def _reserve_promo(code: str, user_id: str, db) -> PromoReservation | None:
+    promo = _load_promo(code, db)
+    if not promo:
+        return None
+    if _promo_used_by_user(code, user_id, db):
+        return None
+
+    existing = _get_active_reservation(code, user_id, db)
+    if existing:
+        return existing
+
+    # enforce max uses against redemptions + active reservations
+    if promo.max_uses is not None:
+        redemptions = db.query(PromoRedemption).filter(PromoRedemption.code == promo.code).count()
+        reservations = db.query(PromoReservation).filter(
+            PromoReservation.code == promo.code,
+            PromoReservation.expires_at > now_msk()
+        ).count()
+        if redemptions + reservations >= promo.max_uses:
+            return None
+
+    expires_at = now_msk() + timedelta(minutes=15)
+    reservation = PromoReservation(
+        code=promo.code,
+        user_id=user_id,
+        percent=promo.percent,
+        expires_at=expires_at
+    )
+    db.add(reservation)
+    db.commit()
+    db.refresh(reservation)
+    return reservation
+
+
+def _release_promo_reservation(order: Order, db) -> None:
+    if not order.promo_code:
+        return
+    db.query(PromoReservation).filter(
+        PromoReservation.code == order.promo_code,
+        PromoReservation.user_id == order.user_id,
+        PromoReservation.order_id == order.order_id
+    ).delete()
+    db.commit()
 
 
 async def _create_crypto_invoice(amount: float, currency: str, order_id: str, recipient: str) -> dict:
@@ -655,6 +735,7 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
     elif status in ("expired", "failed"):
         order.status = "failed"
         db.commit()
+        _release_promo_reservation(order, db)
 
 
 async def _sync_platega_order_status(order: Order, db) -> None:
@@ -678,6 +759,7 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         order.status = "failed"
         order.fragment_last_error = f"platega_status={status}"
         db.commit()
+        _release_promo_reservation(order, db)
 
 def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | None = None) -> Order:
     order_id = str(uuid.uuid4())
@@ -709,6 +791,7 @@ def _check_order_expired(order: Order, db):
     if order.status == "created" and order.expires_at < now_msk():
         order.status = "failed"
         db.commit()
+        _release_promo_reservation(order, db)
     return order
 
 
@@ -720,11 +803,11 @@ async def create_order_crypto(order: CryptoOrderCreate):
     try:
         amount_rub = _stars_base_price(order.quantity or 0)
         promo_percent = 0
-        if order.promo_code:
-            promo = _load_promo(order.promo_code, db)
-            if not promo:
-                raise HTTPException(status_code=400, detail="Invalid promo code")
-            promo_percent = promo.percent
+    if order.promo_code:
+            reservation = _get_active_reservation(order.promo_code, order.user_id, db)
+            if not reservation:
+                raise HTTPException(status_code=400, detail="Invalid or expired promo")
+            promo_percent = reservation.percent
             amount_rub = amount_rub * (1 - promo_percent / 100)
         order.amount_rub = amount_rub
         amount_crypto = await convert_rub_to_crypto(amount_rub, order.currency)
@@ -735,6 +818,10 @@ async def create_order_crypto(order: CryptoOrderCreate):
             db_order.promo_percent = promo_percent
             db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
             db_order.amount_rub = amount_rub
+            db.query(PromoReservation).filter(
+                PromoReservation.code == db_order.promo_code,
+                PromoReservation.user_id == db_order.user_id
+            ).update({"order_id": db_order.order_id})
             db.commit()
 
         invoice = await _create_crypto_invoice(
@@ -777,10 +864,10 @@ async def create_order_platega(order: PlategaOrderCreate):
         amount_rub = _stars_base_price(order.quantity or 0)
         promo_percent = 0
         if order.promo_code:
-            promo = _load_promo(order.promo_code, db)
-            if not promo:
-                raise HTTPException(status_code=400, detail="Invalid promo code")
-            promo_percent = promo.percent
+            reservation = _get_active_reservation(order.promo_code, order.user_id, db)
+            if not reservation:
+                raise HTTPException(status_code=400, detail="Invalid or expired promo")
+            promo_percent = reservation.percent
             amount_rub = amount_rub * (1 - promo_percent / 100)
         order.amount_rub = amount_rub
 
@@ -790,6 +877,10 @@ async def create_order_platega(order: PlategaOrderCreate):
             db_order.promo_percent = promo_percent
             db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
             db_order.amount_rub = amount_rub
+            db.query(PromoReservation).filter(
+                PromoReservation.code == db_order.promo_code,
+                PromoReservation.user_id == db_order.user_id
+            ).update({"order_id": db_order.order_id})
             db.commit()
         try:
             payment = await _create_platega_payment_with_method(
@@ -864,6 +955,10 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
             order.status = "paid"
             db.commit()
             await _fulfill_order_if_needed(order, db)
+        elif status in ("expired", "failed"):
+            order.status = "failed"
+            db.commit()
+            _release_promo_reservation(order, db)
     finally:
         db.close()
 
@@ -1065,6 +1160,18 @@ async def promo_validate(code: str = Query(...)):
         if not promo:
             return {"valid": False}
         return {"valid": True, "percent": promo.percent}
+    finally:
+        db.close()
+
+
+@app.post("/promo/apply")
+async def promo_apply(code: str = Query(...), user_id: str = Query(...)):
+    db = SessionLocal()
+    try:
+        reservation = _reserve_promo(code, user_id, db)
+        if not reservation:
+            return {"valid": False}
+        return {"valid": True, "percent": reservation.percent, "expires_at": reservation.expires_at.isoformat()}
     finally:
         db.close()
 

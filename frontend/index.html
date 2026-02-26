@@ -380,7 +380,10 @@
       <img src="icon-1.png" alt="More Stars" class="logo" loading="eager" fetchpriority="high" decoding="sync" />
       <div class="card actions" role="region" aria-label="Actions">
         <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
-        <button id="buy-premium" class="btn secondary" aria-label="Telegram Premium" data-i18n="telegram_premium">Telegram Premium</button>
+        <button id="buy-premium" class="btn secondary" aria-label="Telegram Premium" data-i18n="telegram_premium" disabled style="opacity:0.6;pointer-events:none;">
+          Telegram Premium
+        </button>
+        <div class="fee-label" style="margin-top:-6px;color:#ff7a18;">Временно не работает</div>
       </div>
       <div class="card" role="region" aria-label="Популярные пакеты">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -977,11 +980,20 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
   if (!code) return;
   status.textContent = currentLang === "ru" ? "Проверяем промокод..." : "Checking promo...";
 
+  const userId = getNumericUserId();
+  if (!userId) {
+    status.textContent = currentLang === "ru"
+      ? "Нужен Telegram ID для промокода."
+      : "Telegram ID is required for promo.";
+    return;
+  }
+
   let res;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
-    res = await fetch(`/promo/validate?code=${encodeURIComponent(code)}`, {
+    res = await fetch(`/promo/apply?code=${encodeURIComponent(code)}&user_id=${encodeURIComponent(userId)}`, {
+      method: "POST",
       headers: getAuthHeaders(),
       signal: controller.signal
     });
@@ -1001,15 +1013,7 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
       : `Promo unavailable: error ${res.status}.`;
     return;
   }
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (e) {
-    status.textContent = currentLang === "ru"
-      ? "Промокод недоступен: сервер вернул не JSON (проверь прокси /promo/validate)."
-      : "Promo unavailable: server returned non-JSON (check /promo/validate proxy).";
-    return;
-  }
+  const data = await res.json();
   if (!data.valid) {
     status.textContent = translations[currentLang]?.promo_invalid || "Invalid promo code";
     return;

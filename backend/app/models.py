@@ -83,6 +83,18 @@ class PromoRedemption(Base):
     created_at = Column(DateTime(timezone=True), default=now_msk)
 
 
+class PromoReservation(Base):
+    __tablename__ = "promo_reservations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, index=True)
+    user_id = Column(String, index=True)
+    percent = Column(Integer)
+    order_id = Column(String, nullable=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=now_msk)
+
+
 class ReferralEarning(Base):
     __tablename__ = "referral_earnings"
 
