@@ -742,14 +742,20 @@ document.querySelectorAll('.nav-item').forEach(n=>{
 });
 
 // Кнопки открытия страниц ассортимента
-document.getElementById('buy-stars').addEventListener('click',()=>{
-  switchPage('buy-stars-page');
-  renderGrid('stars-grid', starsPackages);
-});
-document.getElementById('buy-premium').addEventListener('click',()=>{
-  switchPage('buy-premium-page');
-  renderGrid('premium-grid', premiumPackagesData);
-});
+const buyStarsBtn = document.getElementById('buy-stars');
+if (buyStarsBtn) {
+  buyStarsBtn.addEventListener('click',()=>{
+    switchPage('buy-stars-page');
+    renderGrid('stars-grid', starsPackages);
+  });
+}
+const buyPremiumBtn = document.getElementById('buy-premium');
+if (buyPremiumBtn) {
+  buyPremiumBtn.addEventListener('click',()=>{
+    switchPage('buy-premium-page');
+    renderGrid('premium-grid', premiumPackagesData);
+  });
+}
 
 // Кнопки оплаты
 function getNumericUserId() {
