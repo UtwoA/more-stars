@@ -23,6 +23,20 @@ bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 def build_admin_dispatcher(admin_chat_id: str):
     dp = Dispatcher()
 
+    @dp.message(Command("start"))
+    async def cmd_start(message: Message):
+        link = "https://t.me/more_stars_bot/app?startapp=1"
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="Открыть приложение", url=link)]
+            ]
+        )
+        await message.answer(
+            "Привет! Это More Stars.\n"
+            "Нажмите кнопку ниже, чтобы открыть приложение.",
+            reply_markup=kb,
+        )
+
     @dp.message(Command("info"))
     async def cmd_info(message: Message):
         if str(message.from_user.id) != str(admin_chat_id):
