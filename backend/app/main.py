@@ -275,6 +275,9 @@ class PlategaOrderCreate(OrderCreateBase):
 
 def _product_label(order: Order) -> str:
     if order.product_type == "stars":
+        bonus = int(order.bonus_stars_applied or 0)
+        if bonus > 0:
+            return f"Stars x{order.quantity} (+{bonus} bonus)"
         return f"Stars x{order.quantity}"
     if order.product_type == "premium":
         return f"Premium {order.months} month(s)"
@@ -1253,6 +1256,7 @@ async def last_order_status(user_id: str = Query(...)):
             "quantity": order.quantity,
             "months": order.months,
             "amount": order.amount,
+            "bonus_stars_applied": order.bonus_stars_applied,
             "show_success_page": False,
             "show_failure_page": False
         }
@@ -1311,6 +1315,7 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
                     "amount_rub": o.amount_rub,
                     "currency": o.currency,
                     "status": o.status,
+                    "bonus_stars_applied": o.bonus_stars_applied,
                     "timestamp": o.timestamp.astimezone(MSK).isoformat()
                 }
                 for o in orders

@@ -1392,6 +1392,10 @@ if (refShareBtn) {
 
 function formatOrderProduct(order) {
   if (order.product_type === "stars" && order.quantity) {
+    const bonus = Number(order.bonus_stars_applied || 0);
+    if (bonus > 0) {
+      return `Stars x${order.quantity} (+${bonus} bonus)`;
+    }
     return `Stars x${order.quantity}`;
   }
   if (order.product_type === "premium" && order.months) {
