@@ -298,7 +298,7 @@ def _constant_time_eq(a: str, b: str) -> bool:
 
 def _verify_telegram_init_data(init_data: str) -> bool:
     if not BOT_TOKEN:
-    return False
+        return False
 
 
 def _extract_username(init_data: str | None) -> str | None:
