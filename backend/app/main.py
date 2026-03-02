@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from .crypto_pay import verify_signature
 from .crypto import convert_rub_to_crypto
 from .database import SessionLocal, Base, engine
-from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim
+from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
@@ -136,6 +136,18 @@ with engine.begin() as conn:
     )
     conn.execute(text("ALTER TABLE bonus_claims ADD COLUMN IF NOT EXISTS max_uses INTEGER DEFAULT 1"))
     conn.execute(text("ALTER TABLE bonus_claims ADD COLUMN IF NOT EXISTS uses INTEGER DEFAULT 0"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS bonus_claim_redemptions (
+                id SERIAL PRIMARY KEY,
+                claim_id INTEGER NOT NULL,
+                user_id VARCHAR NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
     conn.execute(
         text(
             """

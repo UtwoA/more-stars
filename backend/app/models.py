@@ -93,6 +93,15 @@ class BonusClaim(Base):
     claimed_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class BonusClaimRedemption(Base):
+    __tablename__ = "bonus_claim_redemptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    claim_id = Column(Integer, index=True)
+    user_id = Column(String, index=True)
+    created_at = Column(DateTime(timezone=True), default=now_msk)
+
+
 class PromoCode(Base):
     __tablename__ = "promo_codes"
 

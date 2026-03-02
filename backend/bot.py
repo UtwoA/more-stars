@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from datetime import datetime, timedelta
 from app.database import SessionLocal
-from app.models import PromoCode, BonusGrant, BonusClaim
+from app.models import PromoCode, BonusGrant, BonusClaim, BonusClaimRedemption
 from app.utils import now_msk
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -198,12 +198,12 @@ async def _claim_bonus(message: Message, token: str) -> None:
             await message.answer("Бонус уже использован или недействителен.")
             return
 
-        existing = db.query(BonusGrant).filter(
-            BonusGrant.user_id == user_id,
-            BonusGrant.status.in_(["active", "reserved"])
+        already_claimed = db.query(BonusClaimRedemption).filter(
+            BonusClaimRedemption.claim_id == claim.id,
+            BonusClaimRedemption.user_id == user_id
         ).first()
-        if existing:
-            await message.answer("У вас уже есть активный бонус.")
+        if already_claimed:
+            await message.answer("Этот бонус уже был вами использован.")
             return
 
         grant = BonusGrant(
@@ -214,13 +214,12 @@ async def _claim_bonus(message: Message, token: str) -> None:
             expires_at=claim.expires_at
         )
         db.add(grant)
+        redemption = BonusClaimRedemption(claim_id=claim.id, user_id=user_id)
+        db.add(redemption)
         claim.uses = (claim.uses or 0) + 1
-        claim.status = "consumed"
         claim.claimed_user_id = user_id
         claim.claimed_at = now
-        if claim.max_uses is not None and claim.uses < claim.max_uses:
-            claim.status = "active"
-        elif claim.max_uses is not None and claim.uses >= claim.max_uses:
+        if claim.max_uses is not None and claim.uses >= claim.max_uses:
             claim.status = "exhausted"
         db.commit()
     finally:
