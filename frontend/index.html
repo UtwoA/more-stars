@@ -241,7 +241,8 @@
       font-weight: 700;
       color: #0b1b34;
       background: #cfe5ff;
-      margin-left: 6px;
+      margin-left: 0;
+      align-self: center;
     }
 
     .bottom-nav {
@@ -357,7 +358,7 @@
     <div class="card">
       <div style="font-weight:800;margin-bottom:8px" data-i18n="referral_system">Реферальная система</div>
       <div class="label" data-i18n="your_link">Ваша ссылка</div>
-      <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);word-break:break-all">—</a>
+      <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</a>
       <button id="ref-share" class="btn secondary" style="margin-top:10px;" data-i18n="share_ref">Поделиться</button>
       <div style="margin-top:12px"><div class="label" data-i18n="invited">Приглашено</div><div class="value" id="ref-count">0</div></div>
       <div style="margin-top:12px"><div class="label" data-i18n="ref_balance">Баланс звёзд</div><div class="value" id="ref-balance">0</div></div>
@@ -1245,7 +1246,9 @@ function setUserFromTelegram(){
         const ref=document.getElementById('ref-link');
         uname.textContent=user.username?`@${user.username}`:(user.first_name||'User');
         uid.textContent=user.id||'';
-        ref.textContent=`https://t.me/more_stars_bot?start=${user.id}`;
+        const fullRef=`https://t.me/more_stars_bot?start=${user.id}`;
+        ref.textContent=formatRefLink(fullRef);
+        ref.title=fullRef;
         ref.href=`https://t.me/more_stars_bot?start=${user.id}`;
         // attach referral if present
         const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
@@ -1256,17 +1259,28 @@ function setUserFromTelegram(){
 
         if(user.photo_url){
           const i=new Image();
-          i.onload=()=>{ avatar.src=user.photo_url; avatar.classList.remove('skeleton'); };
-          i.onerror=()=>{ avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=U'; avatar.classList.remove('skeleton'); };
+          const fallback = () => {
+            avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=U';
+            avatar.classList.remove('skeleton');
+          };
+          const timer = setTimeout(fallback, 3000);
+          i.onload=()=>{ clearTimeout(timer); avatar.src=user.photo_url; avatar.classList.remove('skeleton'); };
+          i.onerror=()=>{ clearTimeout(timer); fallback(); };
           i.src=user.photo_url;
-        } else { avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=U'; avatar.classList.remove('skeleton'); }
+        } else {
+          avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=U';
+          avatar.classList.remove('skeleton');
+        }
       }
     } else {
       const avatar=document.getElementById('user-avatar');
       document.getElementById('user-username').textContent='@demo_user';
       document.getElementById('user-id').textContent='123456';
-      document.getElementById('ref-link').textContent='https://t.me/more_stars_bot?start=123456';
-      document.getElementById('ref-link').href='https://t.me/more_stars_bot?start=123456';
+      const refEl=document.getElementById('ref-link');
+      const fullRef='https://t.me/more_stars_bot?start=123456';
+      refEl.textContent=formatRefLink(fullRef);
+      refEl.title=fullRef;
+      refEl.href=fullRef;
       avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=D'; avatar.classList.remove('skeleton');
     }
     const buildEl = document.getElementById("build-version");
@@ -1274,6 +1288,12 @@ function setUserFromTelegram(){
   }catch(e){ console.warn('Telegram init read error',e); }
 }
 setUserFromTelegram();
+
+function formatRefLink(link) {
+  if (!link) return "—";
+  if (link.length <= 32) return link;
+  return `${link.slice(0, 20)}…${link.slice(-8)}`;
+}
 
 function shareReferralLink() {
   const linkEl = document.getElementById('ref-link');
@@ -1396,9 +1416,17 @@ function loadUserHistory() {
 }
 loadUserHistory();
 
-async function loadProfileSummary() {
-  const userId = document.getElementById("user-id").textContent || "";
-  if (!userId) return;
+async function loadProfileSummary(retries = 3) {
+  let userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  if (!userId) {
+    userId = (document.getElementById("user-id")?.textContent || "").trim();
+  }
+  if (!userId || userId === "—") {
+    if (retries > 0) {
+      setTimeout(() => loadProfileSummary(retries - 1), 500);
+    }
+    return;
+  }
   const data = await fetchJsonWithAuth(`/profile/summary?user_id=${userId}`, {headers: getAuthHeaders()});
   if (!data) return;
   const balance = document.getElementById("ref-balance");
