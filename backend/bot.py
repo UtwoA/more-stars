@@ -232,10 +232,17 @@ async def _claim_bonus(message: Message, token: str) -> None:
     expiry_text = ""
     if bonus_expires:
         expiry_text = f"\nДействует до: {bonus_expires.astimezone(now_msk().tzinfo).strftime('%Y-%m-%d %H:%M')}"
+    link = "https://t.me/more_stars_bot/app?startapp=1"
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Открыть приложение", url=link)]
+        ]
+    )
     await message.answer(
         f"✅ Бонус активирован: {bonus_stars or 0} ⭐"
         f"{expiry_text}\n"
-        f"Он будет автоматически применён при покупке от 50 звёзд."
+        f"Он будет автоматически применён при покупке от 50 звёзд.",
+        reply_markup=kb
     )
 
 async def send_user_message(chat_id: int, product_name: str):

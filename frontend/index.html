@@ -1416,19 +1416,24 @@ function loadUserHistory() {
 }
 loadUserHistory();
 
-async function loadProfileSummary(retries = 3) {
+async function loadProfileSummary(retries = 6) {
   let userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
   if (!userId) {
     userId = (document.getElementById("user-id")?.textContent || "").trim();
   }
   if (!userId || userId === "—") {
     if (retries > 0) {
-      setTimeout(() => loadProfileSummary(retries - 1), 500);
+      setTimeout(() => loadProfileSummary(retries - 1), 700);
     }
     return;
   }
   const data = await fetchJsonWithAuth(`/profile/summary?user_id=${userId}`, {headers: getAuthHeaders()});
-  if (!data) return;
+  if (!data) {
+    if (retries > 0) {
+      setTimeout(() => loadProfileSummary(retries - 1), 700);
+    }
+    return;
+  }
   const balance = document.getElementById("ref-balance");
   if (balance) balance.textContent = String(data.referral_balance_stars || 0);
 
