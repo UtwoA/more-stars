@@ -462,6 +462,9 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     if (order.fragment_status or "").lower() == "success":
         return
 
+    if (order.bonus_stars_applied or 0) == 0 and (order.quantity or 0) >= BONUS_MIN_STARS:
+        _reserve_bonus_for_order(order, db)
+
     claim = db.execute(
         text(
             """
@@ -656,13 +659,13 @@ def _release_promo_reservation(order: Order, db) -> None:
     db.commit()
 
 
-def _get_active_bonus(db, user_id: str) -> BonusGrant | None:
+def _get_active_bonuses(db, user_id: str) -> list[BonusGrant]:
     now = now_msk()
     return db.query(BonusGrant).filter(
         BonusGrant.user_id == user_id,
         BonusGrant.status == "active",
         (BonusGrant.expires_at.is_(None) | (BonusGrant.expires_at > now))
-    ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).first()
+    ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).all()
 
 
 def _reserve_bonus_for_order(order: Order, db) -> None:
@@ -670,48 +673,64 @@ def _reserve_bonus_for_order(order: Order, db) -> None:
         return
     if order.quantity < BONUS_MIN_STARS:
         return
-    if order.bonus_grant_id:
+    if order.bonus_stars_applied and order.bonus_stars_applied > 0:
         return
 
-    grant = _get_active_bonus(db, order.user_id)
-    if not grant:
+    grants = _get_active_bonuses(db, order.user_id)
+    if not grants:
         return
 
-    grant.status = "reserved"
-    order.bonus_grant_id = grant.id
-    order.bonus_stars_applied = grant.stars
+    total_bonus = 0
+    for grant in grants:
+        grant.status = "reserved"
+        grant.consumed_order_id = order.order_id
+        total_bonus += int(grant.stars or 0)
+    order.bonus_grant_id = None
+    order.bonus_stars_applied = total_bonus
     db.commit()
 
 
 def _release_bonus_reservation(order: Order, db) -> None:
-    if not order.bonus_grant_id:
-        return
-    grant = db.query(BonusGrant).filter(BonusGrant.id == order.bonus_grant_id).first()
-    if not grant:
-        return
-    if grant.status == "consumed":
+    grants = db.query(BonusGrant).filter(
+        BonusGrant.consumed_order_id == order.order_id
+    ).all()
+    if order.bonus_grant_id and not any(g.id == order.bonus_grant_id for g in grants):
+        extra = db.query(BonusGrant).filter(BonusGrant.id == order.bonus_grant_id).first()
+        if extra:
+            grants.append(extra)
+    if not grants:
         return
     now = now_msk()
-    if grant.expires_at and grant.expires_at <= now:
-        grant.status = "expired"
-    else:
-        grant.status = "active"
+    for grant in grants:
+        if grant.status == "consumed":
+            continue
+        if grant.expires_at and grant.expires_at <= now:
+            grant.status = "expired"
+        else:
+            grant.status = "active"
+        if grant.consumed_order_id == order.order_id:
+            grant.consumed_order_id = None
     order.bonus_stars_applied = 0
     order.bonus_grant_id = None
     db.commit()
 
 
 def _consume_bonus(order: Order, db) -> None:
-    if not order.bonus_grant_id:
+    grants = db.query(BonusGrant).filter(
+        BonusGrant.consumed_order_id == order.order_id
+    ).all()
+    if order.bonus_grant_id and not any(g.id == order.bonus_grant_id for g in grants):
+        extra = db.query(BonusGrant).filter(BonusGrant.id == order.bonus_grant_id).first()
+        if extra:
+            grants.append(extra)
+    if not grants:
         return
-    grant = db.query(BonusGrant).filter(BonusGrant.id == order.bonus_grant_id).first()
-    if not grant:
-        return
-    if grant.status == "consumed":
-        return
-    grant.status = "consumed"
-    grant.consumed_at = now_msk()
-    grant.consumed_order_id = order.order_id
+    for grant in grants:
+        if grant.status == "consumed":
+            continue
+        grant.status = "consumed"
+        grant.consumed_at = now_msk()
+        grant.consumed_order_id = order.order_id
     db.commit()
 
 

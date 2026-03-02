@@ -961,12 +961,26 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
       })
     });
 
+    if (!response.ok) {
+      const raw = await response.text();
+      console.error("Platega error:", response.status, raw);
+      const paymentLink = document.getElementById("payment-link");
+      const paymentMethodLabelEl = document.getElementById("payment-method-label");
+      if (paymentMethodLabelEl) paymentMethodLabelEl.textContent = "Не удалось создать платеж.";
+      if (paymentLink) paymentLink.style.display = "none";
+      throw new Error("Platega request failed");
+    }
+
     let data = null;
     try {
       data = await response.json();
     } catch (e) {
       const raw = await response.text();
       console.error("Platega non-JSON response:", raw);
+      const paymentLink = document.getElementById("payment-link");
+      const paymentMethodLabelEl = document.getElementById("payment-method-label");
+      if (paymentMethodLabelEl) paymentMethodLabelEl.textContent = "Не удалось создать платеж.";
+      if (paymentLink) paymentLink.style.display = "none";
       throw new Error("Invalid response from server");
     }
     console.log("Создан заказ:", data);
