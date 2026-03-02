@@ -148,3 +148,11 @@ class ReferralEarning(Base):
     order_id = Column(String, index=True)
     stars = Column(Integer)
     created_at = Column(DateTime(timezone=True), default=now_msk)
+
+
+class AdminSetting(Base):
+    __tablename__ = "admin_settings"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=now_msk)

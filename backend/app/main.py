@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from .crypto_pay import verify_signature
 from .crypto import convert_rub_to_crypto
 from .database import SessionLocal, Base, engine
-from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption
+from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
@@ -50,6 +50,7 @@ ADMIN_CHAT_IDS = {
 MINI_APP_URL = os.getenv("MINI_APP_URL")
 REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
 BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
+ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "00:00")
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -77,6 +78,17 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_username VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS admin_settings (
+                key VARCHAR PRIMARY KEY,
+                value VARCHAR NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
     conn.execute(
         text(
             """
@@ -320,6 +332,42 @@ def _extract_username(init_data: str | None) -> str | None:
     except Exception:
         return None
 
+
+def _get_setting(db, key: str, default: str) -> str:
+    row = db.query(AdminSetting).filter(AdminSetting.key == key).first()
+    if row and row.value is not None:
+        return row.value
+    return default
+
+
+def _get_setting_float(db, key: str, default: float) -> float:
+    raw = _get_setting(db, key, str(default))
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _get_setting_int(db, key: str, default: int) -> int:
+    raw = _get_setting(db, key, str(default))
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _get_report_time(db) -> time:
+    raw = _get_setting(db, "ADMIN_REPORT_TIME", ADMIN_REPORT_TIME)
+    try:
+        parts = raw.split(":")
+        if len(parts) != 2:
+            raise ValueError("invalid")
+        hour = int(parts[0])
+        minute = int(parts[1])
+        return time(hour=hour, minute=minute)
+    except Exception:
+        return time(0, 0)
+
     def _verify_with_secret(secret_key: bytes) -> bool:
         parsed = dict(parse_qsl(init_data, keep_blank_values=True))
         hash_value = parsed.pop("hash", "")
@@ -452,7 +500,10 @@ def _format_audit_line(order: Order) -> str:
     qty = int(order.quantity or 0)
     total = qty + bonus
     when = order.timestamp.astimezone(MSK).strftime("%Y-%m-%d %H:%M")
-    user = order.user_username or f"id {order.user_id}"
+    if order.user_username:
+        user = f"{order.user_username} (id {order.user_id})"
+    else:
+        user = f"id {order.user_id}"
     pay = _format_payment_method(order)
     return (
         f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
@@ -514,9 +565,15 @@ async def _send_daily_report() -> None:
 async def _daily_report_loop() -> None:
     while True:
         now = now_msk()
-        tomorrow = now.date() + timedelta(days=1)
-        next_midnight = datetime.combine(tomorrow, time(0, 0), tzinfo=MSK)
-        sleep_seconds = (next_midnight - now).total_seconds()
+        db = SessionLocal()
+        try:
+            report_time = _get_report_time(db)
+        finally:
+            db.close()
+        target = datetime.combine(now.date(), report_time, tzinfo=MSK)
+        if target <= now:
+            target = target + timedelta(days=1)
+        sleep_seconds = (target - now).total_seconds()
         await asyncio.sleep(max(1, sleep_seconds))
         await _send_daily_report()
 
@@ -646,7 +703,8 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
 
     user = db.query(User).filter(User.user_id == order.user_id).first()
     if user and user.referrer_id and order.quantity:
-        bonus = int(order.quantity * REFERRAL_PERCENT / 100)
+        percent = _get_setting_int(db, "REFERRAL_PERCENT", REFERRAL_PERCENT)
+        bonus = int(order.quantity * percent / 100)
         if bonus > 0:
             user.referral_balance_stars = (user.referral_balance_stars or 0) + bonus
             earning = ReferralEarning(
@@ -668,11 +726,18 @@ def _extract_order_id(data: dict) -> str | None:
 
 
 def _stars_base_price(quantity: int) -> float:
+    db = SessionLocal()
+    try:
+        rate_1 = _get_setting_float(db, "STARS_RATE_1", 1.39)
+        rate_2 = _get_setting_float(db, "STARS_RATE_2", 1.37)
+        rate_3 = _get_setting_float(db, "STARS_RATE_3", 1.35)
+    finally:
+        db.close()
     if quantity <= 1000:
-        return quantity * 1.39
+        return quantity * rate_1
     if quantity <= 5000:
-        return quantity * 1.37
-    return quantity * 1.35
+        return quantity * rate_2
+    return quantity * rate_3
 
 
 def _load_promo(code: str, db) -> PromoCode | None:
@@ -1601,6 +1666,150 @@ def _admin_require(request: Request) -> None:
     token = request.cookies.get("admin_otp")
     if not _admin_session_valid(token):
         raise HTTPException(status_code=401, detail="Admin OTP required")
+
+
+class AdminSettingsPayload(BaseModel):
+    referral_percent: int | None = None
+    report_time: str | None = None
+    stars_rate_1: float | None = None
+    stars_rate_2: float | None = None
+    stars_rate_3: float | None = None
+
+
+@app.get("/admin/settings")
+async def admin_settings(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        return {
+            "referral_percent": _get_setting_int(db, "REFERRAL_PERCENT", REFERRAL_PERCENT),
+            "report_time": _get_setting(db, "ADMIN_REPORT_TIME", ADMIN_REPORT_TIME),
+            "stars_rate_1": _get_setting_float(db, "STARS_RATE_1", 1.39),
+            "stars_rate_2": _get_setting_float(db, "STARS_RATE_2", 1.37),
+            "stars_rate_3": _get_setting_float(db, "STARS_RATE_3", 1.35),
+        }
+    finally:
+        db.close()
+
+
+@app.post("/admin/settings")
+async def admin_settings_update(request: Request, payload: AdminSettingsPayload):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        updates = {
+            "REFERRAL_PERCENT": payload.referral_percent,
+            "ADMIN_REPORT_TIME": payload.report_time,
+            "STARS_RATE_1": payload.stars_rate_1,
+            "STARS_RATE_2": payload.stars_rate_2,
+            "STARS_RATE_3": payload.stars_rate_3,
+        }
+        for key, value in updates.items():
+            if value is None:
+                continue
+            row = db.query(AdminSetting).filter(AdminSetting.key == key).first()
+            if not row:
+                row = AdminSetting(key=key, value=str(value))
+                db.add(row)
+            else:
+                row.value = str(value)
+                row.updated_at = now_msk()
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+class AdminPromoPayload(BaseModel):
+    code: str
+    percent: int
+    max_uses: int | None = None
+    active: bool = True
+    expires_at: str | None = None
+
+
+@app.post("/admin/promo/create")
+async def admin_promo_create(request: Request, payload: AdminPromoPayload):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        code = payload.code.strip().upper()
+        expires_at = None
+        if payload.expires_at:
+            expires_at = datetime.strptime(payload.expires_at, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=MSK
+            )
+        promo = db.query(PromoCode).filter(PromoCode.code == code).first()
+        if not promo:
+            promo = PromoCode(
+                code=code,
+                percent=payload.percent,
+                max_uses=payload.max_uses,
+                active=payload.active,
+                expires_at=expires_at
+            )
+            db.add(promo)
+        else:
+            promo.percent = payload.percent
+            promo.max_uses = payload.max_uses
+            promo.active = payload.active
+            promo.expires_at = expires_at
+        db.commit()
+        return {"status": "ok", "code": code}
+    finally:
+        db.close()
+
+
+class AdminBonusClaimPayload(BaseModel):
+    stars: int
+    ttl_minutes: int | None = None
+    max_uses: int | None = None
+    source: str | None = None
+
+
+@app.post("/admin/bonus/claim")
+async def admin_bonus_claim(request: Request, payload: AdminBonusClaimPayload):
+    _admin_require(request)
+    token = secrets.token_hex(12)
+    expires_at = None
+    if payload.ttl_minutes:
+        expires_at = now_msk() + timedelta(minutes=payload.ttl_minutes)
+    db = SessionLocal()
+    try:
+        claim = BonusClaim(
+            token=token,
+            stars=payload.stars,
+            status="active",
+            source=payload.source or "admin_panel",
+            max_uses=payload.max_uses or 1,
+            uses=0,
+            expires_at=expires_at
+        )
+        db.add(claim)
+        db.commit()
+        return {
+            "status": "ok",
+            "token": token,
+            "link": f"https://t.me/more_stars_bot?start=bonus_{token}",
+            "expires_at": expires_at.isoformat() if expires_at else None
+        }
+    finally:
+        db.close()
+
+
+@app.get("/settings/public")
+async def public_settings():
+    db = SessionLocal()
+    try:
+        return {
+            "stars_rate_1": _get_setting_float(db, "STARS_RATE_1", 1.39),
+            "stars_rate_2": _get_setting_float(db, "STARS_RATE_2", 1.37),
+            "stars_rate_3": _get_setting_float(db, "STARS_RATE_3", 1.35),
+            "tier_1_max": 1000,
+            "tier_2_max": 5000,
+        }
+    finally:
+        db.close()
 
 
 @app.get("/admin/audit/today")

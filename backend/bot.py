@@ -83,7 +83,10 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
             qty = int(o.quantity or 0)
             total = qty + bonus
             when = o.timestamp.astimezone(now.tzinfo).strftime("%Y-%m-%d %H:%M")
-            user = o.user_username or f"id {o.user_id}"
+            if o.user_username:
+                user = f"{o.user_username} (id {o.user_id})"
+            else:
+                user = f"id {o.user_id}"
             if o.payment_provider == "platega":
                 pay = "SBP" if o.payment_method == "sbp" else "Card"
             elif o.payment_provider == "crypto":
