@@ -611,6 +611,18 @@ function starsPrice(quantity) {
   return formatRubPrice(discounted);
 }
 
+function clearPromo(reasonText = "") {
+  promoPercent = 0;
+  promoCode = "";
+  localStorage.removeItem("promoPercent");
+  localStorage.removeItem("promoCode");
+  const input = document.getElementById("promo-input");
+  if (input) input.value = "";
+  const status = document.getElementById("promo-status");
+  if (status && reasonText) status.textContent = reasonText;
+  refreshStarsPricing();
+}
+
 // Популярные товары на главном экране
 const popularPackages=[
   {id:'p1',title:'100 ⭐',price:starsPrice(100),badge:'Best', product_type:'stars', quantity:100},
@@ -968,6 +980,12 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
       const errText = `Platega ${response.status}: ${raw.slice(0, 400)}`;
       localStorage.setItem("plategaLastError", errText);
       console.error("Platega error:", response.status, raw);
+      if (raw.includes("Invalid or expired promo")) {
+        const msg = currentLang === "ru"
+          ? "Промокод истек или недействителен. Скидка сброшена."
+          : "Promo expired or invalid. Discount cleared.";
+        clearPromo(msg);
+      }
       const paymentLink = document.getElementById("payment-link");
       const paymentMethodLabelEl = document.getElementById("payment-method-label");
       if (paymentMethodLabelEl) paymentMethodLabelEl.textContent = "Не удалось создать платеж.";
@@ -1096,11 +1114,13 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
     status.textContent = currentLang === "ru"
       ? `Промокод недоступен: ошибка ${res.status}.`
       : `Promo unavailable: error ${res.status}.`;
+    clearPromo();
     return;
   }
   const data = await res.json();
   if (!data.valid) {
     status.textContent = translations[currentLang]?.promo_invalid || "Invalid promo code";
+    clearPromo();
     return;
   }
 
