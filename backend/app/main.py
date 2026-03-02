@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from .crypto_pay import verify_signature
 from .crypto import convert_rub_to_crypto
 from .database import SessionLocal, Base, engine
-from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction
+from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
@@ -46,6 +46,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 MINI_APP_URL = os.getenv("MINI_APP_URL")
 REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
+BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -66,6 +67,8 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_percent INTEGER"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_redeemed BOOLEAN"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_rub_original FLOAT"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_stars_applied INTEGER DEFAULT 0"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_grant_id INTEGER"))
     conn.execute(
         text(
             """
@@ -91,6 +94,40 @@ with engine.begin() as conn:
                 referrer_id VARCHAR,
                 referral_balance_stars INTEGER DEFAULT 0,
                 created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS bonus_grants (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR NOT NULL,
+                stars INTEGER NOT NULL,
+                status VARCHAR DEFAULT 'active',
+                source VARCHAR,
+                expires_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                consumed_at TIMESTAMPTZ,
+                consumed_order_id VARCHAR
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS bonus_claims (
+                id SERIAL PRIMARY KEY,
+                token VARCHAR UNIQUE,
+                stars INTEGER NOT NULL,
+                status VARCHAR DEFAULT 'active',
+                source VARCHAR,
+                expires_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                claimed_user_id VARCHAR,
+                claimed_at TIMESTAMPTZ
             )
             """
         )
@@ -442,6 +479,7 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
         order.fragment_last_error = str(last_error)
         order.fragment_in_progress = False
         db.commit()
+        _release_bonus_reservation(order, db)
         await _notify_admin(
             f"❗ Fragment purchase failed\n"
             f"order_id={order.order_id}\n"
@@ -462,6 +500,7 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     )
     order.fragment_in_progress = False
     db.commit()
+    _consume_bonus(order, db)
 
     if order.promo_code and not order.promo_redeemed:
         promo = _load_promo(order.promo_code, db)
@@ -541,6 +580,18 @@ def _promo_used_by_user(code: str, user_id: str, db) -> bool:
     ).first() is not None
 
 
+def _bonus_summary(db, user_id: str) -> dict:
+    now = now_msk()
+    bonuses = db.query(BonusGrant).filter(
+        BonusGrant.user_id == user_id,
+        BonusGrant.status == "active",
+        (BonusGrant.expires_at.is_(None) | (BonusGrant.expires_at > now))
+    ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).all()
+    total = sum((b.stars or 0) for b in bonuses)
+    expires_at = bonuses[0].expires_at.isoformat() if bonuses and bonuses[0].expires_at else None
+    return {"bonus_stars": total, "bonus_expires_at": expires_at}
+
+
 def _reserve_promo(code: str, user_id: str, db) -> PromoReservation | None:
     promo = _load_promo(code, db)
     if not promo:
@@ -583,6 +634,65 @@ def _release_promo_reservation(order: Order, db) -> None:
         PromoReservation.user_id == order.user_id,
         PromoReservation.order_id == order.order_id
     ).delete()
+    db.commit()
+
+
+def _get_active_bonus(db, user_id: str) -> BonusGrant | None:
+    now = now_msk()
+    return db.query(BonusGrant).filter(
+        BonusGrant.user_id == user_id,
+        BonusGrant.status == "active",
+        (BonusGrant.expires_at.is_(None) | (BonusGrant.expires_at > now))
+    ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).first()
+
+
+def _reserve_bonus_for_order(order: Order, db) -> None:
+    if order.product_type != "stars" or not order.quantity:
+        return
+    if order.quantity < BONUS_MIN_STARS:
+        return
+    if order.bonus_grant_id:
+        return
+
+    grant = _get_active_bonus(db, order.user_id)
+    if not grant:
+        return
+
+    grant.status = "reserved"
+    order.bonus_grant_id = grant.id
+    order.bonus_stars_applied = grant.stars
+    db.commit()
+
+
+def _release_bonus_reservation(order: Order, db) -> None:
+    if not order.bonus_grant_id:
+        return
+    grant = db.query(BonusGrant).filter(BonusGrant.id == order.bonus_grant_id).first()
+    if not grant:
+        return
+    if grant.status == "consumed":
+        return
+    now = now_msk()
+    if grant.expires_at and grant.expires_at <= now:
+        grant.status = "expired"
+    else:
+        grant.status = "active"
+    order.bonus_stars_applied = 0
+    order.bonus_grant_id = None
+    db.commit()
+
+
+def _consume_bonus(order: Order, db) -> None:
+    if not order.bonus_grant_id:
+        return
+    grant = db.query(BonusGrant).filter(BonusGrant.id == order.bonus_grant_id).first()
+    if not grant:
+        return
+    if grant.status == "consumed":
+        return
+    grant.status = "consumed"
+    grant.consumed_at = now_msk()
+    grant.consumed_order_id = order.order_id
     db.commit()
 
 
@@ -743,6 +853,7 @@ async def _sync_crypto_order_status(order: Order, db) -> None:
         order.status = "failed"
         db.commit()
         _release_promo_reservation(order, db)
+        _release_bonus_reservation(order, db)
 
 
 async def _sync_platega_order_status(order: Order, db) -> None:
@@ -767,6 +878,7 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         order.fragment_last_error = f"platega_status={status}"
         db.commit()
         _release_promo_reservation(order, db)
+        _release_bonus_reservation(order, db)
 
 def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | None = None) -> Order:
     order_id = str(uuid.uuid4())
@@ -799,6 +911,7 @@ def _check_order_expired(order: Order, db):
         order.status = "failed"
         db.commit()
         _release_promo_reservation(order, db)
+        _release_bonus_reservation(order, db)
     return order
 
 
@@ -830,6 +943,8 @@ async def create_order_crypto(order: CryptoOrderCreate):
                 PromoReservation.user_id == db_order.user_id
             ).update({"order_id": db_order.order_id})
             db.commit()
+
+        _reserve_bonus_for_order(db_order, db)
 
         invoice = await _create_crypto_invoice(
             amount_crypto,
@@ -889,6 +1004,7 @@ async def create_order_platega(order: PlategaOrderCreate):
                 PromoReservation.user_id == db_order.user_id
             ).update({"order_id": db_order.order_id})
             db.commit()
+        _reserve_bonus_for_order(db_order, db)
         try:
             payment = await _create_platega_payment_with_method(
                 db_order.amount_rub,
@@ -966,6 +1082,7 @@ async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Heade
             order.status = "failed"
             db.commit()
             _release_promo_reservation(order, db)
+            _release_bonus_reservation(order, db)
     finally:
         db.close()
 
@@ -1038,6 +1155,7 @@ async def platega_webhook(
         elif status in ("CANCELED", "CHARGEBACKED"):
             order.status = "failed"
             db.commit()
+            _release_bonus_reservation(order, db)
     finally:
         db.close()
 
@@ -1203,6 +1321,63 @@ async def ref_attach(user_id: str = Query(...), referrer_id: str = Query(...)):
         db.close()
 
 
+@app.post("/admin/bonus/grant")
+async def admin_bonus_grant(
+    user_id: str = Query(...),
+    stars: int = Query(...),
+    source: str | None = Query(default=None),
+    expires_at: str | None = Query(default=None),
+    ttl_minutes: int | None = Query(default=None),
+    api_key: str | None = Query(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    if not API_AUTH_KEY:
+        raise HTTPException(status_code=500, detail="API_AUTH_KEY is not configured")
+    if not _constant_time_eq(API_AUTH_KEY, api_key or x_api_key or ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if stars <= 0:
+        raise HTTPException(status_code=400, detail="Stars must be positive")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            user = User(user_id=user_id)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        existing = db.query(BonusGrant).filter(
+            BonusGrant.user_id == user_id,
+            BonusGrant.status.in_(["active", "reserved"])
+        ).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="User already has active bonus")
+
+        expires_dt = None
+        if ttl_minutes:
+            expires_dt = now_msk() + timedelta(minutes=ttl_minutes)
+        elif expires_at:
+            try:
+                expires_dt = datetime.fromisoformat(expires_at)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid expires_at format") from exc
+
+        grant = BonusGrant(
+            user_id=user_id,
+            stars=stars,
+            status="active",
+            source=source,
+            expires_at=expires_dt
+        )
+        db.add(grant)
+        db.commit()
+        db.refresh(grant)
+        return {"status": "ok", "bonus_id": grant.id, "expires_at": grant.expires_at}
+    finally:
+        db.close()
+
+
 @app.get("/profile/summary")
 async def profile_summary(user_id: str = Query(...)):
     db = SessionLocal()
@@ -1213,9 +1388,12 @@ async def profile_summary(user_id: str = Query(...)):
             db.add(user)
             db.commit()
             db.refresh(user)
+        bonus = _bonus_summary(db, user_id)
         return {
             "referral_balance_stars": user.referral_balance_stars or 0,
-            "referrer_id": user.referrer_id
+            "referrer_id": user.referrer_id,
+            "bonus_balance_stars": bonus["bonus_stars"],
+            "bonus_expires_at": bonus["bonus_expires_at"]
         }
     finally:
         db.close()

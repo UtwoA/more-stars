@@ -3,9 +3,9 @@ from aiogram import Bot, types
 from aiogram import Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.database import SessionLocal
-from app.models import PromoCode
+from app.models import PromoCode, BonusGrant, BonusClaim
 from app.utils import now_msk
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -25,6 +25,11 @@ def build_admin_dispatcher(admin_chat_id: str):
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) > 1 and parts[1].startswith("bonus_"):
+            token = parts[1].replace("bonus_", "", 1).strip()
+            await _claim_bonus(message, token)
+            return
         link = "https://t.me/more_stars_bot/app?startapp=1"
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -103,7 +108,108 @@ def build_admin_dispatcher(admin_chat_id: str):
             f"expires_at={expires_at.date().isoformat() if expires_at else 'none'}"
         )
 
+    @dp.message(Command("grant"))
+    async def cmd_grant(message: Message):
+        if str(message.from_user.id) != str(admin_chat_id):
+            return
+        parts = (message.text or "").split()
+        if len(parts) < 2:
+            await message.answer("Usage: /grant STARS [TTL_MINUTES] [SOURCE]")
+            return
+        try:
+            stars = int(parts[1])
+        except ValueError:
+            await message.answer("STARS must be integer")
+            return
+        ttl_minutes = None
+        source = None
+        if len(parts) >= 3:
+            try:
+                ttl_minutes = int(parts[2])
+            except ValueError:
+                source = parts[2]
+        if len(parts) >= 4:
+            source = parts[3]
+
+        token = _create_bonus_claim(stars=stars, ttl_minutes=ttl_minutes, source=source)
+        link = f"https://t.me/more_stars_bot?start=bonus_{token}"
+        await message.answer(
+            f"Бонус создан: {stars} ⭐\n"
+            f"Ссылка: {link}\n"
+            f"TTL: {ttl_minutes or 'no'} minutes\n"
+            f"Source: {source or 'n/a'}"
+        )
+
     return dp
+
+
+def _create_bonus_claim(stars: int, ttl_minutes: int | None, source: str | None) -> str:
+    token = os.urandom(12).hex()
+    expires_at = None
+    if ttl_minutes:
+        expires_at = now_msk() + timedelta(minutes=ttl_minutes)
+    db = SessionLocal()
+    try:
+        claim = BonusClaim(
+            token=token,
+            stars=stars,
+            status="active",
+            source=source,
+            expires_at=expires_at
+        )
+        db.add(claim)
+        db.commit()
+    finally:
+        db.close()
+    return token
+
+
+async def _claim_bonus(message: Message, token: str) -> None:
+    if not token:
+        await message.answer("Ссылка с бонусом недействительна.")
+        return
+    user_id = str(message.from_user.id)
+    db = SessionLocal()
+    try:
+        claim = db.query(BonusClaim).filter(BonusClaim.token == token).first()
+        if not claim or claim.status != "active":
+            await message.answer("Бонус уже использован или недействителен.")
+            return
+
+        now = now_msk()
+        if claim.expires_at and claim.expires_at <= now:
+            claim.status = "expired"
+            db.commit()
+            await message.answer("Срок действия бонуса истек.")
+            return
+
+        existing = db.query(BonusGrant).filter(
+            BonusGrant.user_id == user_id,
+            BonusGrant.status.in_(["active", "reserved"])
+        ).first()
+        if existing:
+            await message.answer("У вас уже есть активный бонус.")
+            return
+
+        grant = BonusGrant(
+            user_id=user_id,
+            stars=claim.stars,
+            status="active",
+            source=claim.source or "grant_link",
+            expires_at=claim.expires_at
+        )
+        db.add(grant)
+        claim.status = "consumed"
+        claim.claimed_user_id = user_id
+        claim.claimed_at = now
+        db.commit()
+    finally:
+        db.close()
+
+    await message.answer(
+        f"Бонус начислен: {claim.stars} ⭐\n"
+        f"Теперь он будет применён при покупке от 50 звёзд."
+    )
 
 async def send_user_message(chat_id: int, product_name: str):
     link = "https://t.me/more_stars_bot/app?startapp=1"

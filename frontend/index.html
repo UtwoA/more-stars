@@ -344,6 +344,15 @@
       <div style="margin-top:12px"><div class="label" data-i18n="ref_balance">Баланс звёзд</div><div class="value" id="ref-balance">0</div></div>
     </div>
 
+    <div class="card" id="bonus-card">
+      <div style="font-weight:800;margin-bottom:8px" data-i18n="bonus_title">Бонусные звёзды</div>
+      <div class="label" data-i18n="bonus_balance">Бонусный баланс</div>
+      <div class="value" id="bonus-balance">0</div>
+      <div class="label" style="margin-top:8px" data-i18n="bonus_rules">Бонус начисляется при покупке от 50 звёзд</div>
+      <button id="bonus-use" class="btn secondary" style="margin-top:12px;" data-i18n="bonus_use">Купить и вывести</button>
+      <div id="bonus-expiry" style="margin-top:8px;font-size:12px;color:var(--muted);"></div>
+    </div>
+
     <div class="card">
       <div style="font-weight:800;margin-bottom:8px" data-i18n="promo_title">Промокод</div>
       <div class="label" data-i18n="promo_enter">Введите промокод</div>
@@ -436,6 +445,7 @@
             <div id="payment-amount" style="font-size:15px;color:var(--muted);margin-bottom:22px">
               —
             </div>
+            <div id="bonus-info" style="display:none;margin-bottom:10px;font-size:12px;color:var(--muted);"></div>
 
             <div class="actions">
               <button class="btn" id="pay-cryptobot"
@@ -553,6 +563,8 @@ let currentPurchase = {
   title: null,
   price: null
 };
+let bonusBalance = 0;
+let bonusExpiresAt = null;
 const BUILD_VERSION = "2026-02-26-01";
 let promoPercent = Number(localStorage.getItem('promoPercent') || 0);
 let promoCode = localStorage.getItem('promoCode') || "";
@@ -635,6 +647,12 @@ const translations = {
       nav_history: "История",
       nav_shop: "Магазин",
       nav_profile: "Профиль",
+      bonus_title: "Бонусные звёзды",
+      bonus_balance: "Бонусный баланс",
+      bonus_rules: "Бонус начисляется при покупке от 50 звёзд",
+      bonus_use: "Купить и вывести",
+      bonus_expires: "Действует до",
+      bonus_applied: "Бонус: +{bonus} ⭐ будут добавлены к покупке",
 
       // Shop
       buy_stars: "Купить Stars",
@@ -695,6 +713,12 @@ const translations = {
       nav_history: "History",
       nav_shop: "Shop",
       nav_profile: "Profile",
+      bonus_title: "Bonus stars",
+      bonus_balance: "Bonus balance",
+      bonus_rules: "Bonus applies when buying 50+ stars",
+      bonus_use: "Buy and apply",
+      bonus_expires: "Valid until",
+      bonus_applied: "Bonus: +{bonus} ⭐ will be added to purchase",
 
       // Shop
       buy_stars: "Buy Stars",
@@ -757,6 +781,13 @@ if (buyPremiumBtn) {
   buyPremiumBtn.addEventListener('click',()=>{
     switchPage('buy-premium-page');
     renderGrid('premium-grid', premiumPackagesData);
+  });
+}
+const bonusUseBtn = document.getElementById('bonus-use');
+if (bonusUseBtn) {
+  bonusUseBtn.addEventListener('click', () => {
+    switchPage('buy-stars-page');
+    renderGrid('stars-grid', starsPackages);
   });
 }
 
@@ -1103,6 +1134,19 @@ function openPaymentPage(pkg) {
   // Сумма
   document.getElementById("payment-amount").textContent = `${pkg.price}`;
 
+  const bonusInfo = document.getElementById("bonus-info");
+  if (bonusInfo) {
+    const bonusEligible = pkg.product_type === "stars" && (pkg.quantity || 0) >= 50 && bonusBalance > 0;
+    if (bonusEligible) {
+      bonusInfo.style.display = "block";
+      const tmpl = translations[currentLang]?.bonus_applied || "Bonus: +{bonus} ⭐ will be added to purchase";
+      bonusInfo.textContent = tmpl.replace("{bonus}", String(bonusBalance));
+    } else {
+      bonusInfo.style.display = "none";
+      bonusInfo.textContent = "";
+    }
+  }
+
   const isStars = pkg.product_type === "stars";
   ["pay-cryptobot", "pay-sbp", "pay-card"].forEach((id) => {
     const btn = document.getElementById(id);
@@ -1332,6 +1376,25 @@ async function loadProfileSummary() {
   if (!data) return;
   const balance = document.getElementById("ref-balance");
   if (balance) balance.textContent = String(data.referral_balance_stars || 0);
+
+  bonusBalance = Number(data.bonus_balance_stars || 0);
+  bonusExpiresAt = data.bonus_expires_at || null;
+  const bonusCard = document.getElementById("bonus-card");
+  const bonusBalanceEl = document.getElementById("bonus-balance");
+  const bonusExpiryEl = document.getElementById("bonus-expiry");
+  if (bonusBalanceEl) bonusBalanceEl.textContent = String(bonusBalance);
+  if (bonusExpiryEl) {
+    if (bonusExpiresAt) {
+      const date = new Date(bonusExpiresAt);
+      const label = translations[currentLang]?.bonus_expires || "Valid until";
+      bonusExpiryEl.textContent = `${label}: ${date.toLocaleString()}`;
+    } else {
+      bonusExpiryEl.textContent = "";
+    }
+  }
+  if (bonusCard) {
+    bonusCard.style.display = "block";
+  }
 }
 loadProfileSummary();
 

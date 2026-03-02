@@ -234,9 +234,10 @@ async def send_purchase_to_fragment(order: Order) -> dict:
         raise RuntimeError("Fragment API currently supports only stars")
 
     mnemonics = _get_mnemonics()
+    total_quantity = int(order.quantity or 0) + int(order.bonus_stars_applied or 0)
     address, amount, payload = await _get_payment_data(
         recipient=order.recipient,
-        quantity=order.quantity,
+        quantity=total_quantity,
         mnemonics=mnemonics,
     )
 

@@ -32,6 +32,8 @@ class Order(Base):
     promo_percent = Column(Integer, nullable=True)
     promo_redeemed = Column(Boolean, default=False)
     amount_rub_original = Column(Float, nullable=True)
+    bonus_stars_applied = Column(Integer, default=0)
+    bonus_grant_id = Column(Integer, nullable=True)
     timestamp = Column(DateTime(timezone=True), default=now_msk)
     success_page_shown = Column(Integer, default=0)
     failure_page_shown = Column(Integer, default=0)
@@ -59,6 +61,34 @@ class User(Base):
     referrer_id = Column(String, nullable=True, index=True)
     referral_balance_stars = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=now_msk)
+
+
+class BonusGrant(Base):
+    __tablename__ = "bonus_grants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    stars = Column(Integer, nullable=False)
+    status = Column(String, default="active")
+    source = Column(String, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=now_msk)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    consumed_order_id = Column(String, nullable=True)
+
+
+class BonusClaim(Base):
+    __tablename__ = "bonus_claims"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True)
+    stars = Column(Integer, nullable=False)
+    status = Column(String, default="active")
+    source = Column(String, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=now_msk)
+    claimed_user_id = Column(String, nullable=True)
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class PromoCode(Base):
