@@ -114,7 +114,7 @@ def build_admin_dispatcher(admin_chat_id: str):
             return
         parts = (message.text or "").split()
         if len(parts) < 2:
-            await message.answer("Usage: /grant STARS [TTL_MINUTES] [SOURCE]")
+            await message.answer("Usage: /grant STARS [TTL_MINUTES] [MAX_USES] [SOURCE]")
             return
         try:
             stars = int(parts[1])
@@ -122,6 +122,7 @@ def build_admin_dispatcher(admin_chat_id: str):
             await message.answer("STARS must be integer")
             return
         ttl_minutes = None
+        max_uses = 1
         source = None
         if len(parts) >= 3:
             try:
@@ -129,21 +130,27 @@ def build_admin_dispatcher(admin_chat_id: str):
             except ValueError:
                 source = parts[2]
         if len(parts) >= 4:
-            source = parts[3]
+            try:
+                max_uses = int(parts[3])
+            except ValueError:
+                source = parts[3]
+        if len(parts) >= 5:
+            source = " ".join(parts[4:])
 
-        token = _create_bonus_claim(stars=stars, ttl_minutes=ttl_minutes, source=source)
+        token = _create_bonus_claim(stars=stars, ttl_minutes=ttl_minutes, max_uses=max_uses, source=source)
         link = f"https://t.me/more_stars_bot?start=bonus_{token}"
         await message.answer(
             f"Бонус создан: {stars} ⭐\n"
             f"Ссылка: {link}\n"
             f"TTL: {ttl_minutes or 'no'} minutes\n"
+            f"MAX_USES: {max_uses}\n"
             f"Source: {source or 'n/a'}"
         )
 
     return dp
 
 
-def _create_bonus_claim(stars: int, ttl_minutes: int | None, source: str | None) -> str:
+def _create_bonus_claim(stars: int, ttl_minutes: int | None, max_uses: int, source: str | None) -> str:
     token = os.urandom(12).hex()
     expires_at = None
     if ttl_minutes:
@@ -155,6 +162,8 @@ def _create_bonus_claim(stars: int, ttl_minutes: int | None, source: str | None)
             stars=stars,
             status="active",
             source=source,
+            max_uses=max_uses,
+            uses=0,
             expires_at=expires_at
         )
         db.add(claim)
@@ -183,6 +192,12 @@ async def _claim_bonus(message: Message, token: str) -> None:
             await message.answer("Срок действия бонуса истек.")
             return
 
+        if claim.max_uses is not None and claim.uses is not None and claim.uses >= claim.max_uses:
+            claim.status = "exhausted"
+            db.commit()
+            await message.answer("Бонус уже использован или недействителен.")
+            return
+
         existing = db.query(BonusGrant).filter(
             BonusGrant.user_id == user_id,
             BonusGrant.status.in_(["active", "reserved"])
@@ -199,9 +214,14 @@ async def _claim_bonus(message: Message, token: str) -> None:
             expires_at=claim.expires_at
         )
         db.add(grant)
+        claim.uses = (claim.uses or 0) + 1
         claim.status = "consumed"
         claim.claimed_user_id = user_id
         claim.claimed_at = now
+        if claim.max_uses is not None and claim.uses < claim.max_uses:
+            claim.status = "active"
+        elif claim.max_uses is not None and claim.uses >= claim.max_uses:
+            claim.status = "exhausted"
         db.commit()
     finally:
         db.close()

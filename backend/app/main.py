@@ -124,6 +124,8 @@ with engine.begin() as conn:
                 stars INTEGER NOT NULL,
                 status VARCHAR DEFAULT 'active',
                 source VARCHAR,
+                max_uses INTEGER DEFAULT 1,
+                uses INTEGER DEFAULT 0,
                 expires_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT now(),
                 claimed_user_id VARCHAR,
@@ -132,6 +134,8 @@ with engine.begin() as conn:
             """
         )
     )
+    conn.execute(text("ALTER TABLE bonus_claims ADD COLUMN IF NOT EXISTS max_uses INTEGER DEFAULT 1"))
+    conn.execute(text("ALTER TABLE bonus_claims ADD COLUMN IF NOT EXISTS uses INTEGER DEFAULT 0"))
     conn.execute(
         text(
             """

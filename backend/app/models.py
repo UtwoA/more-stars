@@ -85,6 +85,8 @@ class BonusClaim(Base):
     stars = Column(Integer, nullable=False)
     status = Column(String, default="active")
     source = Column(String, nullable=True)
+    max_uses = Column(Integer, default=1)
+    uses = Column(Integer, default=0)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=now_msk)
     claimed_user_id = Column(String, nullable=True)
