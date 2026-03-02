@@ -63,6 +63,8 @@ class User(Base):
     user_id = Column(String, primary_key=True, index=True)
     referrer_id = Column(String, nullable=True, index=True)
     referral_balance_stars = Column(Integer, default=0)
+    username = Column(String, nullable=True)
+    full_name = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=now_msk)
 
 

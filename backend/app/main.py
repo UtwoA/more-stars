@@ -78,6 +78,8 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_username VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR"))
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR"))
     conn.execute(
         text(
             """
@@ -313,24 +315,39 @@ def _verify_telegram_init_data(init_data: str) -> bool:
         return False
 
 
-def _extract_username(init_data: str | None) -> str | None:
+def _extract_user_fields(init_data: str | None) -> tuple[str | None, str | None, str | None]:
     if not init_data:
-        return None
+        return None, None, None
     try:
         parsed = dict(parse_qsl(init_data, keep_blank_values=True))
         user_raw = parsed.get("user")
         if not user_raw:
-            return None
+            return None, None, None
         user = json.loads(unquote_plus(user_raw))
-        username = (user.get("username") or "").strip()
-        if username:
-            return f"@{username}"
+        username = (user.get("username") or "").strip() or None
         first = (user.get("first_name") or "").strip()
         last = (user.get("last_name") or "").strip()
-        full = " ".join(part for part in [first, last] if part)
-        return full or None
+        full = " ".join(part for part in [first, last] if part).strip() or None
+        display = f"@{username}" if username else full
+        return username, full, display
     except Exception:
-        return None
+        return None, None, None
+
+
+def _touch_user_from_initdata(db, user_id: str, init_data: str | None) -> str | None:
+    username, full_name, display = _extract_user_fields(init_data)
+    if not username and not full_name:
+        return display
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        user = User(user_id=user_id)
+        db.add(user)
+    if username:
+        user.username = username
+    if full_name:
+        user.full_name = full_name
+    db.commit()
+    return display
 
 
 def _get_setting(db, key: str, default: str) -> str:
@@ -511,6 +528,24 @@ def _format_audit_line(order: Order) -> str:
     )
 
 
+def _format_audit_line_with_user(order: Order, display_name: str | None) -> str:
+    bonus = int(order.bonus_stars_applied or 0)
+    qty = int(order.quantity or 0)
+    total = qty + bonus
+    when = order.timestamp.astimezone(MSK).strftime("%Y-%m-%d %H:%M")
+    if display_name:
+        user = f"{display_name} (id {order.user_id})"
+    elif order.user_username:
+        user = f"{order.user_username} (id {order.user_id})"
+    else:
+        user = f"id {order.user_id}"
+    pay = _format_payment_method(order)
+    return (
+        f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
+        f"order: {order.order_id}"
+    )
+
+
 def _admin_session_valid(token: str | None) -> bool:
     if not token:
         return False
@@ -545,9 +580,14 @@ async def _send_audit_if_needed(order: Order, db) -> None:
         return
     if order.product_type != "stars" or order.status != "paid":
         return
+    display = None
+    if not order.user_username:
+        user = db.query(User).filter(User.user_id == order.user_id).first()
+        if user:
+            display = f"@{user.username}" if user.username else user.full_name
     text = (
         "✅ New Stars Purchase\n"
-        f"{_format_audit_line(order)}"
+        f"{_format_audit_line_with_user(order, display)}"
     )
     await _notify_admin(text)
     order.audit_sent = True
@@ -1151,7 +1191,8 @@ async def create_order_crypto(order: CryptoOrderCreate, request: Request):
         order.amount_rub = amount_rub
         amount_crypto = await convert_rub_to_crypto(amount_rub, order.currency)
 
-        user_username = _extract_username(request.headers.get("x-telegram-init-data"))
+        init_data = request.headers.get("x-telegram-init-data")
+        user_username = _touch_user_from_initdata(db, order.user_id, init_data)
         db_order = _create_order(
             db,
             order,
@@ -1220,7 +1261,8 @@ async def create_order_platega(order: PlategaOrderCreate, request: Request):
             amount_rub = amount_rub * (1 - promo_percent / 100)
         order.amount_rub = amount_rub
 
-        user_username = _extract_username(request.headers.get("x-telegram-init-data"))
+        init_data = request.headers.get("x-telegram-init-data")
+        user_username = _touch_user_from_initdata(db, order.user_id, init_data)
         payment_method_label = "sbp" if payment_method == 2 else "card"
         db_order = _create_order(
             db,
@@ -1977,9 +2019,17 @@ async def admin_audit_today(request: Request):
             .limit(200)
             .all()
         )
+        user_ids = list({o.user_id for o in orders})
+        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
+        user_map = {}
+        for u in users:
+            if u.username:
+                user_map[u.user_id] = f"@{u.username}"
+            elif u.full_name:
+                user_map[u.user_id] = u.full_name
     finally:
         db.close()
-    items = [_format_audit_line(o) for o in orders]
+    items = [_format_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
     return {"items": items}
 
 
@@ -1998,9 +2048,17 @@ async def admin_audit_recent(request: Request, limit: int = 200):
             .limit(min(limit, 500))
             .all()
         )
+        user_ids = list({o.user_id for o in orders})
+        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
+        user_map = {}
+        for u in users:
+            if u.username:
+                user_map[u.user_id] = f"@{u.username}"
+            elif u.full_name:
+                user_map[u.user_id] = u.full_name
     finally:
         db.close()
-    items = [_format_audit_line(o) for o in orders]
+    items = [_format_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
     return {"items": items}
 
 
@@ -2106,7 +2164,7 @@ async def admin_bonus_grant(
 
 
 @app.get("/profile/summary")
-async def profile_summary(user_id: str = Query(...)):
+async def profile_summary(user_id: str = Query(...), request: Request = None):
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.user_id == user_id).first()
@@ -2115,6 +2173,9 @@ async def profile_summary(user_id: str = Query(...)):
             db.add(user)
             db.commit()
             db.refresh(user)
+        init_data = request.headers.get("x-telegram-init-data") if request else None
+        if init_data:
+            _touch_user_from_initdata(db, user_id, init_data)
         bonus = _bonus_summary(db, user_id)
         return {
             "referral_balance_stars": user.referral_balance_stars or 0,

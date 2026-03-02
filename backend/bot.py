@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from datetime import datetime, timedelta
 from app.database import SessionLocal
-from app.models import PromoCode, BonusGrant, BonusClaim, BonusClaimRedemption, Order
+from app.models import PromoCode, BonusGrant, BonusClaim, BonusClaimRedemption, Order, User
 from app.utils import now_msk
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -77,14 +77,25 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
             await message.answer("За последние 24 часа покупок не было.")
             return
 
+        user_map = {}
+        user_ids = list({o.user_id for o in orders})
+        if user_ids:
+            users = db.query(User).filter(User.user_id.in_(user_ids)).all()
+            for u in users:
+                if u.username:
+                    user_map[u.user_id] = f"@{u.username}"
+                elif u.full_name:
+                    user_map[u.user_id] = u.full_name
+
         lines = []
         for o in orders:
             bonus = int(o.bonus_stars_applied or 0)
             qty = int(o.quantity or 0)
             total = qty + bonus
             when = o.timestamp.astimezone(now.tzinfo).strftime("%Y-%m-%d %H:%M")
-            if o.user_username:
-                user = f"{o.user_username} (id {o.user_id})"
+            display = o.user_username or user_map.get(o.user_id)
+            if display:
+                user = f"{display} (id {o.user_id})"
             else:
                 user = f"id {o.user_id}"
             if o.payment_provider == "platega":
