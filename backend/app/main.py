@@ -476,6 +476,13 @@ async def auth_and_rate_limit(request: Request, call_next):
                 logger.warning("[AUTH] Allowing unverified initData for %s", path)
                 return await call_next(request)
 
+        logger.warning(
+            "[AUTH] Unauthorized %s ip=%s init_len=%s ua=%s",
+            path,
+            _client_ip(request),
+            len(init_data or ""),
+            request.headers.get("user-agent", "")
+        )
         return PlainTextResponse("Unauthorized", status_code=401)
 
     return await call_next(request)
