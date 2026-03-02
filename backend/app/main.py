@@ -313,6 +313,23 @@ def _constant_time_eq(a: str, b: str) -> bool:
 def _verify_telegram_init_data(init_data: str) -> bool:
     if not BOT_TOKEN:
         return False
+    parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+    hash_value = parsed.pop("hash", "")
+    if not hash_value:
+        return False
+
+    data_check = "\n".join(f"{k}={parsed[k]}" for k in sorted(parsed))
+
+    def _verify_with_secret(secret_key: bytes) -> bool:
+        h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
+        return _constant_time_eq(h, hash_value)
+
+    webapp_secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    if _verify_with_secret(webapp_secret):
+        return True
+
+    legacy_secret = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    return _verify_with_secret(legacy_secret)
 
 
 def _extract_user_fields(init_data: str | None) -> tuple[str | None, str | None, str | None]:
