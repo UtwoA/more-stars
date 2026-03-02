@@ -4,6 +4,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import uuid
 from datetime import timedelta, datetime, time
 from urllib.parse import parse_qsl, unquote_plus
@@ -11,7 +12,7 @@ from urllib.parse import parse_qsl, unquote_plus
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query, Header, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, root_validator
 from sqlalchemy import text
 from zoneinfo import ZoneInfo
@@ -53,6 +54,8 @@ BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
 ALLOW_UNVERIFIED_INITDATA = os.getenv("ALLOW_UNVERIFIED_INITDATA", "false").lower() in ("1", "true", "yes")
+ADMIN_OTP_TTL_MIN = int(os.getenv("ADMIN_OTP_TTL_MIN", "5"))
+ADMIN_OTP_SECRET = os.getenv("ADMIN_OTP_SECRET") or API_AUTH_KEY or "change-me"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -379,6 +382,10 @@ class _RateLimiter:
 
 _rate_limiter = _RateLimiter(RATE_LIMIT_PER_MIN)
 
+_admin_otp_code: str | None = None
+_admin_otp_expires_at: datetime | None = None
+_admin_sessions: dict[str, datetime] = {}
+
 
 @app.middleware("http")
 async def auth_and_rate_limit(request: Request, call_next):
@@ -450,6 +457,35 @@ def _format_audit_line(order: Order) -> str:
     return (
         f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
         f"order: {order.order_id}"
+    )
+
+
+def _admin_session_valid(token: str | None) -> bool:
+    if not token:
+        return False
+    expires_at = _admin_sessions.get(token)
+    if not expires_at:
+        return False
+    if expires_at <= now_msk():
+        _admin_sessions.pop(token, None)
+        return False
+    return True
+
+
+def _admin_set_session() -> str:
+    token = secrets.token_urlsafe(24)
+    _admin_sessions[token] = now_msk() + timedelta(hours=12)
+    return token
+
+
+async def _admin_send_otp() -> None:
+    global _admin_otp_code, _admin_otp_expires_at
+    _admin_otp_code = f"{secrets.randbelow(1000000):06d}"
+    _admin_otp_expires_at = now_msk() + timedelta(minutes=ADMIN_OTP_TTL_MIN)
+    await _notify_admin(
+        "🔐 Admin login code\n"
+        f"Code: {_admin_otp_code}\n"
+        f"Valid: {ADMIN_OTP_TTL_MIN} min"
     )
 
 
@@ -1412,6 +1448,204 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
         }
     finally:
         db.close()
+
+
+def _admin_panel_html(authed: bool) -> str:
+    if not authed:
+        return """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Admin Login</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0;padding:24px}
+    .card{max-width:420px;margin:12vh auto;background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:20px}
+    .btn{display:block;width:100%;padding:12px 14px;border-radius:10px;border:0;background:#2a8bf2;color:#fff;font-weight:700;margin-top:10px;cursor:pointer}
+    .input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2f38;background:#0e1116;color:#e9eef7}
+    .muted{color:#8b93a7;font-size:12px;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Admin Access</h2>
+    <div class="muted">Request one-time code in Telegram, then enter it here.</div>
+    <button class="btn" onclick="requestCode()">Send code</button>
+    <div style="height:12px"></div>
+    <input class="input" id="code" placeholder="6-digit code" />
+    <button class="btn" onclick="verifyCode()">Verify</button>
+    <div id="status" class="muted"></div>
+  </div>
+  <script>
+    async function requestCode(){
+      const res = await fetch('/admin/otp/request', {method:'POST', credentials:'include'});
+      document.getElementById('status').textContent = res.ok ? 'Code sent' : 'Failed to send';
+    }
+    async function verifyCode(){
+      const code = document.getElementById('code').value.trim();
+      if(!code) return;
+      const res = await fetch('/admin/otp/verify', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({code}),
+        credentials:'include'
+      });
+      if(res.ok){ location.reload(); return; }
+      document.getElementById('status').textContent = 'Invalid code';
+    }
+  </script>
+</body>
+</html>
+"""
+
+    return """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Admin Audit</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0;padding:24px}
+    h1{margin:0 0 16px 0}
+    .grid{display:grid;grid-template-columns:1fr;gap:14px}
+    .card{background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:16px}
+    pre{white-space:pre-wrap;word-break:break-word;color:#c9d1e4;font-size:13px}
+    .muted{color:#8b93a7;font-size:12px}
+    .btn{display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:10px;border:1px solid #2a2f38;background:#101318;color:#e9eef7;cursor:pointer}
+  </style>
+</head>
+<body>
+  <h1>Audit</h1>
+  <div class="grid">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Last 24h</strong>
+        <button class="btn" onclick="loadToday()">Refresh</button>
+      </div>
+      <pre id="today">Loading...</pre>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Recent</strong>
+        <button class="btn" onclick="loadRecent()">Refresh</button>
+      </div>
+      <pre id="recent">Loading...</pre>
+      <div class="muted">Latest 200 paid stars orders.</div>
+    </div>
+  </div>
+  <script>
+    async function loadToday(){
+      const res = await fetch('/admin/audit/today', {credentials:'include'});
+      const data = await res.json();
+      document.getElementById('today').textContent = (data.items || []).join('\\n') || 'No data';
+    }
+    async function loadRecent(){
+      const res = await fetch('/admin/audit/recent', {credentials:'include'});
+      const data = await res.json();
+      document.getElementById('recent').textContent = (data.items || []).join('\\n') || 'No data';
+    }
+    loadToday();
+    loadRecent();
+  </script>
+</body>
+</html>
+"""
+
+
+@app.get("/admin/panel", response_class=HTMLResponse)
+async def admin_panel(request: Request):
+    token = request.cookies.get("admin_otp")
+    authed = _admin_session_valid(token)
+    return _admin_panel_html(authed)
+
+
+@app.post("/admin/otp/request")
+async def admin_otp_request():
+    if not ADMIN_CHAT_IDS:
+        raise HTTPException(status_code=403, detail="Admins not configured")
+    if _admin_otp_expires_at and _admin_otp_expires_at > now_msk():
+        raise HTTPException(status_code=429, detail="OTP already sent")
+    await _admin_send_otp()
+    return {"status": "ok"}
+
+
+class AdminOtpVerify(BaseModel):
+    code: str
+
+
+@app.post("/admin/otp/verify")
+async def admin_otp_verify(payload: AdminOtpVerify):
+    if not _admin_otp_code or not _admin_otp_expires_at:
+        raise HTTPException(status_code=400, detail="OTP not requested")
+    if _admin_otp_expires_at <= now_msk():
+        raise HTTPException(status_code=400, detail="OTP expired")
+    if payload.code.strip() != _admin_otp_code:
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    session_token = _admin_set_session()
+    response = JSONResponse({"status": "ok"})
+    response.set_cookie(
+        "admin_otp",
+        session_token,
+        httponly=True,
+        secure=True,
+        samesite="Lax",
+        max_age=12 * 60 * 60,
+    )
+    return response
+
+
+def _admin_require(request: Request) -> None:
+    token = request.cookies.get("admin_otp")
+    if not _admin_session_valid(token):
+        raise HTTPException(status_code=401, detail="Admin OTP required")
+
+
+@app.get("/admin/audit/today")
+async def admin_audit_today(request: Request):
+    _admin_require(request)
+    now = now_msk()
+    since = now - timedelta(hours=24)
+    db = SessionLocal()
+    try:
+        orders = (
+            db.query(Order)
+            .filter(
+                Order.product_type == "stars",
+                Order.status == "paid",
+                Order.timestamp >= since
+            )
+            .order_by(Order.timestamp.desc())
+            .limit(200)
+            .all()
+        )
+    finally:
+        db.close()
+    items = [_format_audit_line(o) for o in orders]
+    return {"items": items}
+
+
+@app.get("/admin/audit/recent")
+async def admin_audit_recent(request: Request, limit: int = 200):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        orders = (
+            db.query(Order)
+            .filter(
+                Order.product_type == "stars",
+                Order.status == "paid",
+            )
+            .order_by(Order.timestamp.desc())
+            .limit(min(limit, 500))
+            .all()
+        )
+    finally:
+        db.close()
+    items = [_format_audit_line(o) for o in orders]
+    return {"items": items}
 
 
 @app.get("/promo/validate")
