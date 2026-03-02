@@ -179,6 +179,8 @@ async def _claim_bonus(message: Message, token: str) -> None:
         return
     user_id = str(message.from_user.id)
     db = SessionLocal()
+    bonus_stars = None
+    bonus_expires = None
     try:
         claim = db.query(BonusClaim).filter(BonusClaim.token == token).first()
         if not claim or claim.status != "active":
@@ -222,12 +224,18 @@ async def _claim_bonus(message: Message, token: str) -> None:
         if claim.max_uses is not None and claim.uses >= claim.max_uses:
             claim.status = "exhausted"
         db.commit()
+        bonus_stars = claim.stars
+        bonus_expires = claim.expires_at
     finally:
         db.close()
 
+    expiry_text = ""
+    if bonus_expires:
+        expiry_text = f"\nДействует до: {bonus_expires.astimezone(now_msk().tzinfo).strftime('%Y-%m-%d %H:%M')}"
     await message.answer(
-        f"Бонус начислен: {claim.stars} ⭐\n"
-        f"Теперь он будет применён при покупке от 50 звёзд."
+        f"✅ Бонус активирован: {bonus_stars or 0} ⭐"
+        f"{expiry_text}\n"
+        f"Он будет автоматически применён при покупке от 50 звёзд."
     )
 
 async def send_user_message(chat_id: int, product_name: str):
