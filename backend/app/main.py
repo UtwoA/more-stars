@@ -659,11 +659,11 @@ def _release_promo_reservation(order: Order, db) -> None:
     db.commit()
 
 
-def _get_active_bonuses(db, user_id: str) -> list[BonusGrant]:
+def _get_reservable_bonuses(db, user_id: str) -> list[BonusGrant]:
     now = now_msk()
     return db.query(BonusGrant).filter(
         BonusGrant.user_id == user_id,
-        BonusGrant.status == "active",
+        BonusGrant.status.in_(["active", "reserved"]),
         (BonusGrant.expires_at.is_(None) | (BonusGrant.expires_at > now))
     ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).all()
 
@@ -676,12 +676,17 @@ def _reserve_bonus_for_order(order: Order, db) -> None:
     if order.bonus_stars_applied and order.bonus_stars_applied > 0:
         return
 
-    grants = _get_active_bonuses(db, order.user_id)
+    grants = _get_reservable_bonuses(db, order.user_id)
     if not grants:
         return
 
     total_bonus = 0
     for grant in grants:
+        if grant.consumed_order_id and grant.consumed_order_id != order.order_id:
+            db.query(Order).filter(Order.order_id == grant.consumed_order_id).update({
+                "bonus_stars_applied": 0,
+                "bonus_grant_id": None
+            })
         grant.status = "reserved"
         grant.consumed_order_id = order.order_id
         total_bonus += int(grant.stars or 0)
