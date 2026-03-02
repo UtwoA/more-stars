@@ -600,7 +600,7 @@ def _bonus_summary(db, user_id: str) -> dict:
     now = now_msk()
     bonuses = db.query(BonusGrant).filter(
         BonusGrant.user_id == user_id,
-        BonusGrant.status == "active",
+        BonusGrant.status.in_(["active", "reserved"]),
         (BonusGrant.expires_at.is_(None) | (BonusGrant.expires_at > now))
     ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).all()
     total = sum((b.stars or 0) for b in bonuses)
