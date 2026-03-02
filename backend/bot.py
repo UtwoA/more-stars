@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from datetime import datetime, timedelta
 from app.database import SessionLocal
-from app.models import PromoCode, BonusGrant, BonusClaim, BonusClaimRedemption
+from app.models import PromoCode, BonusGrant, BonusClaim, BonusClaimRedemption, Order
 from app.utils import now_msk
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -49,6 +49,50 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
             return
         from app.admin_reports import build_admin_report
         text = await build_admin_report()
+        await message.answer(text)
+
+    @dp.message(Command("today"))
+    async def cmd_today(message: Message):
+        if str(message.from_user.id) not in admin_ids:
+            return
+        now = now_msk()
+        since = now - timedelta(hours=24)
+        db = SessionLocal()
+        try:
+            orders = (
+                db.query(Order)
+                .filter(
+                    Order.product_type == "stars",
+                    Order.status == "paid",
+                    Order.timestamp >= since
+                )
+                .order_by(Order.timestamp.desc())
+                .limit(200)
+                .all()
+            )
+        finally:
+            db.close()
+
+        if not orders:
+            await message.answer("За последние 24 часа покупок не было.")
+            return
+
+        lines = []
+        for o in orders:
+            bonus = int(o.bonus_stars_applied or 0)
+            qty = int(o.quantity or 0)
+            total = qty + bonus
+            when = o.timestamp.astimezone(now.tzinfo).strftime("%Y-%m-%d %H:%M")
+            user = o.user_username or f"id {o.user_id}"
+            if o.payment_provider == "platega":
+                pay = "SBP" if o.payment_method == "sbp" else "Card"
+            elif o.payment_provider == "crypto":
+                pay = "CryptoBot"
+            else:
+                pay = o.payment_provider or "unknown"
+            lines.append(f"{when} | ⭐ {total} ({qty}+{bonus}) | {user} | {pay}")
+
+        text = "Покупки за 24 часа:\n" + "\n".join(lines)
         await message.answer(text)
 
     @dp.message(Command("promo"))

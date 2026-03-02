@@ -71,6 +71,9 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_rub_original FLOAT"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_stars_applied INTEGER DEFAULT 0"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_grant_id INTEGER"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_username VARCHAR"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
     conn.execute(
         text(
             """
@@ -292,7 +295,27 @@ def _constant_time_eq(a: str, b: str) -> bool:
 
 def _verify_telegram_init_data(init_data: str) -> bool:
     if not BOT_TOKEN:
-        return False
+    return False
+
+
+def _extract_username(init_data: str | None) -> str | None:
+    if not init_data:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        user_raw = parsed.get("user")
+        if not user_raw:
+            return None
+        user = json.loads(unquote_plus(user_raw))
+        username = (user.get("username") or "").strip()
+        if username:
+            return f"@{username}"
+        first = (user.get("first_name") or "").strip()
+        last = (user.get("last_name") or "").strip()
+        full = " ".join(part for part in [first, last] if part)
+        return full or None
+    except Exception:
+        return None
 
     def _verify_with_secret(secret_key: bytes) -> bool:
         parsed = dict(parse_qsl(init_data, keep_blank_values=True))
@@ -403,6 +426,45 @@ async def _notify_admin(text: str) -> None:
             await send_admin_message(chat_id=int(admin_id), text=text)
     except Exception:
         logger.exception("[ADMIN] Failed to send admin message")
+
+
+def _format_payment_method(order: Order) -> str:
+    if order.payment_provider == "platega":
+        if order.payment_method == "sbp":
+            return "SBP"
+        if order.payment_method == "card":
+            return "Card"
+        return "Platega"
+    if order.payment_provider == "crypto":
+        return "CryptoBot"
+    return order.payment_provider or "unknown"
+
+
+def _format_audit_line(order: Order) -> str:
+    bonus = int(order.bonus_stars_applied or 0)
+    qty = int(order.quantity or 0)
+    total = qty + bonus
+    when = order.timestamp.astimezone(MSK).strftime("%Y-%m-%d %H:%M")
+    user = order.user_username or f"id {order.user_id}"
+    pay = _format_payment_method(order)
+    return (
+        f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
+        f"order: {order.order_id}"
+    )
+
+
+async def _send_audit_if_needed(order: Order, db) -> None:
+    if order.audit_sent:
+        return
+    if order.product_type != "stars" or order.status != "paid":
+        return
+    text = (
+        "✅ New Stars Purchase\n"
+        f"{_format_audit_line(order)}"
+    )
+    await _notify_admin(text)
+    order.audit_sent = True
+    db.commit()
 
 
 async def _send_daily_report() -> None:
@@ -526,6 +588,7 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     order.fragment_in_progress = False
     db.commit()
     _consume_bonus(order, db)
+    await _send_audit_if_needed(order, db)
 
     if order.promo_code and not order.promo_redeemed:
         promo = _load_promo(order.promo_code, db)
@@ -926,12 +989,20 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         _release_promo_reservation(order, db)
         _release_bonus_reservation(order, db)
 
-def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | None = None) -> Order:
+def _create_order(
+    db,
+    order_in: OrderCreateBase,
+    provider: str,
+    currency: str | None = None,
+    payment_method: str | None = None,
+    user_username: str | None = None,
+) -> Order:
     order_id = str(uuid.uuid4())
 
     db_order = Order(
         order_id=order_id,
         user_id=order_in.user_id,
+        user_username=user_username,
         recipient=order_in.recipient if order_in.recipient != "@unknown" else "self",
         product_type=order_in.product_type,
         quantity=order_in.quantity,
@@ -942,6 +1013,7 @@ def _create_order(db, order_in: OrderCreateBase, provider: str, currency: str | 
         currency=currency or "RUB",
         status="created",
         payment_provider=provider,
+        payment_method=payment_method,
         timestamp=now_msk(),
         expires_at=now_msk() + timedelta(minutes=10)
     )
@@ -962,7 +1034,7 @@ def _check_order_expired(order: Order, db):
 
 
 @app.post("/orders/crypto")
-async def create_order_crypto(order: CryptoOrderCreate):
+async def create_order_crypto(order: CryptoOrderCreate, request: Request):
     if order.product_type != "stars":
         raise HTTPException(status_code=400, detail="Only Stars are supported right now")
     db = SessionLocal()
@@ -978,7 +1050,15 @@ async def create_order_crypto(order: CryptoOrderCreate):
         order.amount_rub = amount_rub
         amount_crypto = await convert_rub_to_crypto(amount_rub, order.currency)
 
-        db_order = _create_order(db, order, provider="crypto", currency=order.currency)
+        user_username = _extract_username(request.headers.get("x-telegram-init-data"))
+        db_order = _create_order(
+            db,
+            order,
+            provider="crypto",
+            currency=order.currency,
+            payment_method="cryptobot",
+            user_username=user_username,
+        )
         if order.promo_code and promo_percent:
             db_order.promo_code = order.promo_code.upper()
             db_order.promo_percent = promo_percent
@@ -1019,7 +1099,7 @@ async def create_order_robokassa(order: RobokassaOrderCreate):
 
 
 @app.post("/orders/platega")
-async def create_order_platega(order: PlategaOrderCreate):
+async def create_order_platega(order: PlategaOrderCreate, request: Request):
     if order.product_type != "stars":
         raise HTTPException(status_code=400, detail="Only Stars are supported right now")
 
@@ -1039,7 +1119,16 @@ async def create_order_platega(order: PlategaOrderCreate):
             amount_rub = amount_rub * (1 - promo_percent / 100)
         order.amount_rub = amount_rub
 
-        db_order = _create_order(db, order, provider="platega", currency="RUB")
+        user_username = _extract_username(request.headers.get("x-telegram-init-data"))
+        payment_method_label = "sbp" if payment_method == 2 else "card"
+        db_order = _create_order(
+            db,
+            order,
+            provider="platega",
+            currency="RUB",
+            payment_method=payment_method_label,
+            user_username=user_username,
+        )
         if order.promo_code and promo_percent:
             db_order.promo_code = order.promo_code.upper()
             db_order.promo_percent = promo_percent
