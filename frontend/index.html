@@ -391,6 +391,7 @@
       </button>
       <div id="build-version" style="margin-top:10px;font-size:11px;color:var(--muted);">Build: —</div>
       <div id="initdata-debug" style="margin-top:6px;font-size:10px;color:var(--muted);word-break:break-all;"></div>
+      <div id="platega-debug" style="margin-top:6px;font-size:10px;color:var(--muted);word-break:break-all;"></div>
     </div>
   </div>
 
@@ -964,6 +965,8 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
 
     if (!response.ok) {
       const raw = await response.text();
+      const errText = `Platega ${response.status}: ${raw.slice(0, 400)}`;
+      localStorage.setItem("plategaLastError", errText);
       console.error("Platega error:", response.status, raw);
       const paymentLink = document.getElementById("payment-link");
       const paymentMethodLabelEl = document.getElementById("payment-method-label");
@@ -977,6 +980,8 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
       data = await response.json();
     } catch (e) {
       const raw = await response.text();
+      const errText = `Platega parse error: ${raw.slice(0, 400)}`;
+      localStorage.setItem("plategaLastError", errText);
       console.error("Platega non-JSON response:", raw);
       const paymentLink = document.getElementById("payment-link");
       const paymentMethodLabelEl = document.getElementById("payment-method-label");
@@ -1309,6 +1314,11 @@ function setUserFromTelegram(){
       } else {
         initDebugEl.textContent = "InitData: (empty)";
       }
+    }
+    const plategaDebugEl = document.getElementById("platega-debug");
+    if (plategaDebugEl) {
+      const lastErr = localStorage.getItem("plategaLastError");
+      plategaDebugEl.textContent = lastErr ? `Last error: ${lastErr}` : "Last error: —";
     }
   }catch(e){ console.warn('Telegram init read error',e); }
 }
