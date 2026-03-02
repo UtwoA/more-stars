@@ -390,8 +390,6 @@
         Поддержка
       </button>
       <div id="build-version" style="margin-top:10px;font-size:11px;color:var(--muted);">Build: —</div>
-      <div id="initdata-debug" style="margin-top:6px;font-size:10px;color:var(--muted);word-break:break-all;"></div>
-      <div id="platega-debug" style="margin-top:6px;font-size:10px;color:var(--muted);word-break:break-all;"></div>
     </div>
   </div>
 
@@ -1327,21 +1325,6 @@ function setUserFromTelegram(){
     }
     const buildEl = document.getElementById("build-version");
     if (buildEl) buildEl.textContent = `Build: ${BUILD_VERSION}`;
-    const initDebugEl = document.getElementById("initdata-debug");
-    if (initDebugEl) {
-      const initData = window.Telegram?.WebApp?.initData || "";
-      if (initData) {
-        const head = initData.length > 160 ? `${initData.slice(0, 160)}…` : initData;
-        initDebugEl.textContent = `InitData (${initData.length}): ${head}`;
-      } else {
-        initDebugEl.textContent = "InitData: (empty)";
-      }
-    }
-    const plategaDebugEl = document.getElementById("platega-debug");
-    if (plategaDebugEl) {
-      const lastErr = localStorage.getItem("plategaLastError");
-      plategaDebugEl.textContent = lastErr ? `Last error: ${lastErr}` : "Last error: —";
-    }
   }catch(e){ console.warn('Telegram init read error',e); }
 }
 setUserFromTelegram();

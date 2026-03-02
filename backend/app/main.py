@@ -1526,13 +1526,15 @@ def _admin_panel_html(authed: bool) -> str:
   <title>Admin Login</title>
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0;padding:24px}
-    .card{max-width:420px;margin:12vh auto;background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:20px}
+    .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{width:100%;max-width:420px;background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:20px}
     .btn{display:block;width:100%;padding:12px 14px;border-radius:10px;border:0;background:#2a8bf2;color:#fff;font-weight:700;margin-top:10px;cursor:pointer}
     .input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2f38;background:#0e1116;color:#e9eef7}
     .muted{color:#8b93a7;font-size:12px;margin-top:8px}
   </style>
 </head>
 <body>
+  <div class="wrap">
   <div class="card">
     <h2>Admin Access</h2>
     <div class="muted">Request one-time code in Telegram, then enter it here.</div>
@@ -1541,6 +1543,7 @@ def _admin_panel_html(authed: bool) -> str:
     <input class="input" id="code" placeholder="6-digit code" />
     <button class="btn" onclick="verifyCode()">Verify</button>
     <div id="status" class="muted"></div>
+  </div>
   </div>
   <script>
     async function requestCode(){
@@ -1579,6 +1582,9 @@ def _admin_panel_html(authed: bool) -> str:
     pre{white-space:pre-wrap;word-break:break-word;color:#c9d1e4;font-size:13px}
     .muted{color:#8b93a7;font-size:12px}
     .btn{display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:10px;border:1px solid #2a2f38;background:#101318;color:#e9eef7;cursor:pointer}
+    .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+    .input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #2a2f38;background:#0e1116;color:#e9eef7}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   </style>
 </head>
 <body>
@@ -1599,6 +1605,85 @@ def _admin_panel_html(authed: bool) -> str:
       <pre id="recent">Loading...</pre>
       <div class="muted">Latest 200 paid stars orders.</div>
     </div>
+    <div class="card">
+      <strong>Settings</strong>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Report time (HH:MM)</label>
+          <input class="input" id="report_time" placeholder="00:00"/>
+        </div>
+        <div class="field">
+          <label class="muted">Referral %</label>
+          <input class="input" id="ref_percent" type="number" min="0" max="100"/>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Rate tier 1 (<=1000)</label>
+          <input class="input" id="rate1" type="number" step="0.01"/>
+        </div>
+        <div class="field">
+          <label class="muted">Rate tier 2 (<=5000)</label>
+          <input class="input" id="rate2" type="number" step="0.01"/>
+        </div>
+      </div>
+      <div class="field">
+        <label class="muted">Rate tier 3 (>5000)</label>
+        <input class="input" id="rate3" type="number" step="0.01"/>
+      </div>
+      <button class="btn" onclick="saveSettings()" style="margin-top:10px">Save settings</button>
+      <div id="settings-status" class="muted"></div>
+    </div>
+    <div class="card">
+      <strong>Create Promo</strong>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Code</label>
+          <input class="input" id="promo_code" placeholder="PROMO2026"/>
+        </div>
+        <div class="field">
+          <label class="muted">Percent</label>
+          <input class="input" id="promo_percent" type="number" min="1" max="100"/>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Max uses</label>
+          <input class="input" id="promo_max" type="number" min="1"/>
+        </div>
+        <div class="field">
+          <label class="muted">Expires (YYYY-MM-DD)</label>
+          <input class="input" id="promo_exp" placeholder="2026-12-31"/>
+        </div>
+      </div>
+      <button class="btn" onclick="createPromo()" style="margin-top:10px">Create promo</button>
+      <div id="promo-status" class="muted"></div>
+    </div>
+    <div class="card">
+      <strong>Create Bonus Link</strong>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Stars</label>
+          <input class="input" id="bonus_stars" type="number" min="1"/>
+        </div>
+        <div class="field">
+          <label class="muted">TTL (minutes)</label>
+          <input class="input" id="bonus_ttl" type="number" min="1"/>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Max uses</label>
+          <input class="input" id="bonus_max" type="number" min="1"/>
+        </div>
+        <div class="field">
+          <label class="muted">Source</label>
+          <input class="input" id="bonus_source" placeholder="promo_tg"/>
+        </div>
+      </div>
+      <button class="btn" onclick="createBonus()" style="margin-top:10px">Create bonus link</button>
+      <div id="bonus-status" class="muted"></div>
+    </div>
   </div>
   <script>
     async function loadToday(){
@@ -1611,8 +1696,70 @@ def _admin_panel_html(authed: bool) -> str:
       const data = await res.json();
       document.getElementById('recent').textContent = (data.items || []).join('\\n') || 'No data';
     }
+    async function loadSettings(){
+      const res = await fetch('/admin/settings', {credentials:'include'});
+      if(!res.ok) return;
+      const data = await res.json();
+      document.getElementById('report_time').value = data.report_time || '';
+      document.getElementById('ref_percent').value = data.referral_percent ?? '';
+      document.getElementById('rate1').value = data.stars_rate_1 ?? '';
+      document.getElementById('rate2').value = data.stars_rate_2 ?? '';
+      document.getElementById('rate3').value = data.stars_rate_3 ?? '';
+    }
+    async function saveSettings(){
+      const payload = {
+        report_time: document.getElementById('report_time').value.trim() || null,
+        referral_percent: Number(document.getElementById('ref_percent').value || 0) || null,
+        stars_rate_1: Number(document.getElementById('rate1').value || 0) || null,
+        stars_rate_2: Number(document.getElementById('rate2').value || 0) || null,
+        stars_rate_3: Number(document.getElementById('rate3').value || 0) || null,
+      };
+      const res = await fetch('/admin/settings', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+        credentials:'include'
+      });
+      document.getElementById('settings-status').textContent = res.ok ? 'Saved' : 'Save failed';
+    }
+    async function createPromo(){
+      const payload = {
+        code: document.getElementById('promo_code').value.trim(),
+        percent: Number(document.getElementById('promo_percent').value || 0),
+        max_uses: Number(document.getElementById('promo_max').value || 0) || null,
+        expires_at: document.getElementById('promo_exp').value.trim() || null,
+        active: true
+      };
+      const res = await fetch('/admin/promo/create', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+        credentials:'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      document.getElementById('promo-status').textContent = res.ok ? `OK: ${data.code || payload.code}` : 'Failed';
+    }
+    async function createBonus(){
+      const payload = {
+        stars: Number(document.getElementById('bonus_stars').value || 0),
+        ttl_minutes: Number(document.getElementById('bonus_ttl').value || 0) || null,
+        max_uses: Number(document.getElementById('bonus_max').value || 0) || null,
+        source: document.getElementById('bonus_source').value.trim() || null,
+      };
+      const res = await fetch('/admin/bonus/claim', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+        credentials:'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      document.getElementById('bonus-status').textContent = res.ok
+        ? `Link: ${data.link || ''}`
+        : 'Failed';
+    }
     loadToday();
     loadRecent();
+    loadSettings();
   </script>
 </body>
 </html>
