@@ -922,7 +922,8 @@ document.getElementById("pay-cryptobot").onclick = async () => {
 
         if (statusData.status === "paid") {
           clearInterval(interval);
-          openSuccessPage(currentPurchase);
+          const title = formatOrderProduct(statusData);
+          openSuccessPage({ title }, statusData.order_id);
         }
         if (statusData.status === "failed") {
           clearInterval(interval);
@@ -1036,7 +1037,8 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
 
         if (statusData.status === "paid") {
           clearInterval(interval);
-          openSuccessPage(currentPurchase);
+          const title = formatOrderProduct(statusData);
+          openSuccessPage({ title }, statusData.order_id);
         }
         if (statusData.status === "failed") {
           clearInterval(interval);
@@ -1622,7 +1624,14 @@ function proceedToPayment(recipient) {
 }
 
 // Вызывается при успешной покупке
-function openSuccessPage(pkg) {
+function openSuccessPage(pkg, orderId = null) {
+  if (orderId) {
+    const key = `successShown:${orderId}`;
+    if (localStorage.getItem(key)) {
+      return;
+    }
+    localStorage.setItem(key, "1");
+  }
   if(!pkg || !pkg.title) {
     // Если пакета нет — просто редирект без названия
     window.location.href = '/success.html';
@@ -1670,7 +1679,7 @@ async function initWebApp() {
 
     if (data.show_success_page) {
       // Показываем страницу успешной оплаты
-      openSuccessPage({ title: formatOrderProduct(data) });
+      openSuccessPage({ title: formatOrderProduct(data) }, data.order_id);
     } else if (data.show_failure_page) {
       // Показываем страницу неудачной оплаты
       openFailurePage({ title: formatOrderProduct(data) });
@@ -1708,7 +1717,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     if (data.show_success_page) {
-      openSuccessPage({title: formatOrderProduct(data)});
+      openSuccessPage({title: formatOrderProduct(data)}, data.order_id);
     } else if (data.show_failure_page) {
       openFailurePage({title: formatOrderProduct(data)});
     } else {

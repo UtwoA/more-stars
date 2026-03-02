@@ -1458,7 +1458,15 @@ async def order_status(order_id: str):
         await _sync_crypto_order_status(order, db)
         await _sync_platega_order_status(order, db)
         _check_order_expired(order, db)
-        return {"order_id": order.order_id, "status": order.status}
+        return {
+            "order_id": order.order_id,
+            "status": order.status,
+            "product_type": order.product_type,
+            "quantity": order.quantity,
+            "months": order.months,
+            "amount": order.amount,
+            "bonus_stars_applied": order.bonus_stars_applied
+        }
     finally:
         db.close()
 
