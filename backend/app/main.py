@@ -43,7 +43,9 @@ PLATEGA_WEBHOOK_IP_ALLOWLIST = {
 }
 PLATEGA_WEBHOOK_TOKEN = os.getenv("PLATEGA_WEBHOOK_TOKEN")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+ADMIN_CHAT_IDS = {
+    item.strip() for item in (os.getenv("ADMIN_CHAT_ID") or "").split(",") if item.strip()
+}
 MINI_APP_URL = os.getenv("MINI_APP_URL")
 REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
 BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
@@ -391,16 +393,17 @@ async def _safe_send_user_message(order: Order) -> None:
 
 
 async def _notify_admin(text: str) -> None:
-    if not ADMIN_CHAT_ID:
+    if not ADMIN_CHAT_IDS:
         return
     try:
-        await send_admin_message(chat_id=int(ADMIN_CHAT_ID), text=text)
+        for admin_id in ADMIN_CHAT_IDS:
+            await send_admin_message(chat_id=int(admin_id), text=text)
     except Exception:
         logger.exception("[ADMIN] Failed to send admin message")
 
 
 async def _send_daily_report() -> None:
-    if not ADMIN_CHAT_ID:
+    if not ADMIN_CHAT_IDS:
         return
     from .admin_reports import build_admin_report
     text = await build_admin_report()
@@ -448,8 +451,8 @@ async def _availability_loop() -> None:
 async def _startup_tasks():
     asyncio.create_task(_daily_report_loop())
     asyncio.create_task(_availability_loop())
-    if ADMIN_CHAT_ID:
-        dp = build_admin_dispatcher(ADMIN_CHAT_ID)
+    if ADMIN_CHAT_IDS:
+        dp = build_admin_dispatcher(ADMIN_CHAT_IDS)
         asyncio.create_task(dp.start_polling(bot))
 
 

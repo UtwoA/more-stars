@@ -20,8 +20,9 @@ if not BOT_TOKEN:
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 
 
-def build_admin_dispatcher(admin_chat_id: str):
+def build_admin_dispatcher(admin_chat_ids: set[str]):
     dp = Dispatcher()
+    admin_ids = {str(item) for item in admin_chat_ids if item}
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
@@ -44,7 +45,7 @@ def build_admin_dispatcher(admin_chat_id: str):
 
     @dp.message(Command("info"))
     async def cmd_info(message: Message):
-        if str(message.from_user.id) != str(admin_chat_id):
+        if str(message.from_user.id) not in admin_ids:
             return
         from app.admin_reports import build_admin_report
         text = await build_admin_report()
@@ -52,7 +53,7 @@ def build_admin_dispatcher(admin_chat_id: str):
 
     @dp.message(Command("promo"))
     async def cmd_promo(message: Message):
-        if str(message.from_user.id) != str(admin_chat_id):
+        if str(message.from_user.id) not in admin_ids:
             return
 
         parts = (message.text or "").split()
@@ -110,7 +111,7 @@ def build_admin_dispatcher(admin_chat_id: str):
 
     @dp.message(Command("grant"))
     async def cmd_grant(message: Message):
-        if str(message.from_user.id) != str(admin_chat_id):
+        if str(message.from_user.id) not in admin_ids:
             return
         parts = (message.text or "").split()
         if len(parts) < 2:
