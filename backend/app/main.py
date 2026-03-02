@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 import os
 import secrets
@@ -402,6 +403,12 @@ def _get_report_time(db) -> time:
     except Exception:
         return time(0, 0)
 
+
+def _round_money(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
     def _verify_with_secret(secret_key: bytes) -> bool:
         parsed = dict(parse_qsl(init_data, keep_blank_values=True))
         hash_value = parsed.pop("hash", "")
@@ -736,12 +743,6 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
         await _safe_send_user_message(order)
     except Exception:
         logger.exception("[BOT] Failed to send user message")
-    await _notify_admin(
-        f"✅ Purchase completed\n"
-        f"order_id={order.order_id}\n"
-        f"user_id={order.user_id}\n"
-        f"product={_product_label(order)}"
-    )
     order.fragment_in_progress = False
     db.commit()
     _consume_bonus(order, db)
@@ -1212,7 +1213,7 @@ async def create_order_crypto(order: CryptoOrderCreate, request: Request):
                 raise HTTPException(status_code=400, detail="Invalid or expired promo")
             promo_percent = reservation.percent
             amount_rub = amount_rub * (1 - promo_percent / 100)
-        order.amount_rub = amount_rub
+        order.amount_rub = _round_money(amount_rub) or amount_rub
         amount_crypto = await convert_rub_to_crypto(amount_rub, order.currency)
 
         init_data = request.headers.get("x-telegram-init-data")
@@ -1229,7 +1230,7 @@ async def create_order_crypto(order: CryptoOrderCreate, request: Request):
             db_order.promo_code = order.promo_code.upper()
             db_order.promo_percent = promo_percent
             db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
-            db_order.amount_rub = amount_rub
+            db_order.amount_rub = _round_money(amount_rub) or amount_rub
             db.query(PromoReservation).filter(
                 PromoReservation.code == db_order.promo_code,
                 PromoReservation.user_id == db_order.user_id
@@ -1250,7 +1251,7 @@ async def create_order_crypto(order: CryptoOrderCreate, request: Request):
 
         return {
             "order_id": db_order.order_id,
-            "amount_rub": db_order.amount_rub,
+            "amount_rub": _round_money(db_order.amount_rub),
             "amount_crypto": amount_crypto,
             "currency": order.currency,
             "crypto_invoice": invoice
@@ -1283,7 +1284,7 @@ async def create_order_platega(order: PlategaOrderCreate, request: Request):
                 raise HTTPException(status_code=400, detail="Invalid or expired promo")
             promo_percent = reservation.percent
             amount_rub = amount_rub * (1 - promo_percent / 100)
-        order.amount_rub = amount_rub
+        order.amount_rub = _round_money(amount_rub) or amount_rub
 
         init_data = request.headers.get("x-telegram-init-data")
         user_username = _touch_user_from_initdata(db, order.user_id, init_data)
@@ -1300,7 +1301,7 @@ async def create_order_platega(order: PlategaOrderCreate, request: Request):
             db_order.promo_code = order.promo_code.upper()
             db_order.promo_percent = promo_percent
             db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
-            db_order.amount_rub = amount_rub
+            db_order.amount_rub = _round_money(amount_rub) or amount_rub
             db.query(PromoReservation).filter(
                 PromoReservation.code == db_order.promo_code,
                 PromoReservation.user_id == db_order.user_id
@@ -1324,7 +1325,15 @@ async def create_order_platega(order: PlategaOrderCreate, request: Request):
                 f"user_id={db_order.user_id}\n"
                 f"detail={detail}"
             )
-            raise HTTPException(status_code=502, detail=detail)
+            # one retry for transient errors
+            try:
+                payment = await _create_platega_payment_with_method(
+                    db_order.amount_rub,
+                    db_order.order_id,
+                    payment_method
+                )
+            except Exception:
+                raise HTTPException(status_code=502, detail=detail) from exc
         except httpx.ReadTimeout:
             logger.error("[PLATEGA] Create payment timed out")
             await _notify_admin(
@@ -1513,6 +1522,7 @@ async def last_order_status(user_id: str = Query(...)):
             "months": order.months,
             "amount": order.amount,
             "bonus_stars_applied": order.bonus_stars_applied,
+            "amount_rub": _round_money(order.amount_rub),
             "show_success_page": False,
             "show_failure_page": False
         }
@@ -1568,7 +1578,7 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
                     "quantity": o.quantity,
                     "months": o.months,
                     "amount": o.amount,
-                    "amount_rub": o.amount_rub,
+                    "amount_rub": _round_money(o.amount_rub),
                     "currency": o.currency,
                     "status": o.status,
                     "bonus_stars_applied": o.bonus_stars_applied,
