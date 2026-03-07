@@ -1097,6 +1097,12 @@ document.getElementById("pay-ton").onclick = async () => {
     if (!response.ok) {
       const raw = await response.text();
       console.error("TON Connect error:", response.status, raw);
+      if (raw.includes("Invalid or expired promo")) {
+        const msg = currentLang === "ru"
+          ? "Промокод истек или недействителен. Скидка сброшена."
+          : "Promo expired or invalid. Discount cleared.";
+        clearPromo(msg);
+      }
       alert("Не удалось создать платеж. Попробуйте еще раз.");
       return;
     }
