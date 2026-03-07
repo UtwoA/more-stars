@@ -19,7 +19,7 @@ from sqlalchemy import text
 from zoneinfo import ZoneInfo
 
 from .crypto_pay import verify_signature
-from .crypto import convert_rub_to_crypto
+from .crypto import convert_rub_to_crypto, convert_to_rub
 from .database import SessionLocal, Base, engine
 from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting
 from .utils import now_msk
@@ -52,6 +52,7 @@ MINI_APP_URL = os.getenv("MINI_APP_URL")
 REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
 BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "00:00")
+STAR_COST_USD_PER_100 = float(os.getenv("STAR_COST_USD_PER_100", "1.5"))
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -616,10 +617,23 @@ async def _send_audit_if_needed(order: Order, db) -> None:
         user = db.query(User).filter(User.user_id == order.user_id).first()
         if user:
             display = f"@{user.username}" if user.username else user.full_name
-    text = (
-        "✅ New Stars Purchase\n"
-        f"{_format_audit_line_with_user(order, display)}"
-    )
+    base_line = _format_audit_line_with_user(order, display)
+    revenue_line = ""
+    try:
+        total_stars = int(order.quantity or 0) + int(order.bonus_stars_applied or 0)
+        cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
+        cost_rub = await convert_to_rub("USDT", cost_usd)
+        revenue = _round_money(order.amount_rub) or 0
+        cost_rub = _round_money(cost_rub) or 0
+        profit = _round_money(revenue - cost_rub) or 0
+        revenue_line = (
+            f"\n💰 Выручка: {revenue} ₽"
+            f"\n📦 Себестоимость: {cost_rub} ₽"
+            f"\n📈 Прибыль: {profit} ₽"
+        )
+    except Exception:
+        logger.exception("[AUDIT] Failed to compute revenue")
+    text = "✅ Покупка звёзд\n" + base_line + revenue_line
     await _notify_admin(text)
     order.audit_sent = True
     db.commit()
