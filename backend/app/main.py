@@ -19,7 +19,7 @@ from sqlalchemy import text
 from zoneinfo import ZoneInfo
 
 from .crypto_pay import verify_signature
-from .crypto import convert_rub_to_crypto, convert_to_rub
+from .crypto import convert_rub_to_crypto, convert_to_rub, get_usdtrub_rate
 from .database import SessionLocal, Base, engine
 from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting
 from .utils import now_msk
@@ -621,15 +621,19 @@ async def _send_audit_if_needed(order: Order, db) -> None:
     revenue_line = ""
     try:
         total_stars = int(order.quantity or 0) + int(order.bonus_stars_applied or 0)
+        usdtrub = await get_usdtrub_rate()
         cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
-        cost_rub = await convert_to_rub("USDT", cost_usd)
+        cost_rub = cost_usd * usdtrub
         revenue = _round_money(order.amount_rub) or 0
         cost_rub = _round_money(cost_rub) or 0
         profit = _round_money(revenue - cost_rub) or 0
+        per_star = _round_money(cost_rub / total_stars) if total_stars else 0
         revenue_line = (
             f"\n💰 Выручка: {revenue} ₽"
             f"\n📦 Себестоимость: {cost_rub} ₽"
+            f"\n📊 Себестоимость/звезда: {per_star} ₽"
             f"\n📈 Прибыль: {profit} ₽"
+            f"\n💱 Курс USDTRUB: {_round_money(usdtrub)} ₽"
         )
     except Exception:
         logger.exception("[AUDIT] Failed to compute revenue")

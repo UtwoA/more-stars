@@ -2,6 +2,11 @@ import httpx
 
 BINANCE_API = "https://api.binance.com/api/v3/ticker/price"
 
+async def get_usdtrub_rate() -> float:
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"{BINANCE_API}?symbol=USDTRUB")
+        return float(r.json()["price"])
+
 # -------------------------
 # КРИПТО → RUB
 # -------------------------
