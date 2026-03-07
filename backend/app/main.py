@@ -1242,7 +1242,13 @@ async def _sync_tonconnect_order_status(order: Order, db) -> None:
         if utime and utime < order_ts - 600:
             continue
         order.status = "paid"
-        order.payment_invoice_id = tx.get("transaction_id") or tx.get("hash") or order.payment_invoice_id
+        tx_id = tx.get("transaction_id")
+        if isinstance(tx_id, dict):
+            tx_id = tx_id.get("hash") or tx_id.get("lt")
+        if not tx_id:
+            tx_id = tx.get("hash")
+        if tx_id:
+            order.payment_invoice_id = str(tx_id)
         db.commit()
         await _fulfill_order_if_needed(order, db)
         return
