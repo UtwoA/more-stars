@@ -477,12 +477,6 @@
               </button>
               <div class="fee-label">Комиссия 3%</div>
 
-              <button class="btn" id="pay-card"
-                      style="background:linear-gradient(135deg,#ff7a18,#d64a00)" data-i18n="card">
-                Card
-              </button>
-              <div class="fee-label">Комиссия 9%</div>
-
               <button class="btn secondary" id="pay-sbp"
                       style="border-color:#2bb673;color:#2bb673" data-i18n="sbp">
                 СБП (Российские банки)
@@ -1054,7 +1048,6 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
 }
 
 document.getElementById("pay-sbp").onclick = () => startPlategaPayment(2, "СБП");
-document.getElementById("pay-card").onclick = () => startPlategaPayment(11, "Карта");
 
 // Кнопка после удачной оплаты
 document.getElementById("success-back").addEventListener("click", () => {
@@ -1213,7 +1206,7 @@ function openPaymentPage(pkg) {
   }
 
   const isStars = pkg.product_type === "stars";
-  ["pay-cryptobot", "pay-sbp", "pay-card"].forEach((id) => {
+  ["pay-cryptobot", "pay-sbp"].forEach((id) => {
     const btn = document.getElementById(id);
     if (!btn) return;
     btn.style.display = "inline-flex";
