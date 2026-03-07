@@ -54,6 +54,9 @@ BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "00:00")
 STAR_COST_USD_PER_100 = float(os.getenv("STAR_COST_USD_PER_100", "1.5"))
 STAR_COST_RATE_SOURCE = os.getenv("STAR_COST_RATE_SOURCE", "moex").lower()
+TONCENTER_API_KEY = os.getenv("TONCENTER_API_KEY")
+TONCENTER_BASE_URL = os.getenv("TONCENTER_BASE_URL") or "https://toncenter.com"
+TONCONNECT_WALLET_ADDRESS = os.getenv("TONCONNECT_WALLET_ADDRESS")
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -81,6 +84,8 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_username VARCHAR"))
     conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount FLOAT"))
+    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount_nano VARCHAR"))
     conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR"))
     conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR"))
     conn.execute(
@@ -296,6 +301,10 @@ class PlategaOrderCreate(OrderCreateBase):
     promo_code: str | None = None
 
 
+class TonConnectOrderCreate(OrderCreateBase):
+    promo_code: str | None = None
+
+
 def _product_label(order: Order) -> str:
     if order.product_type == "stars":
         bonus = int(order.bonus_stars_applied or 0)
@@ -410,6 +419,10 @@ def _round_money(value: float | None) -> float | None:
     if value is None:
         return None
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _to_nano(ton_amount: float) -> int:
+    return int(Decimal(str(ton_amount)) * Decimal("1000000000"))
 
     def _verify_with_secret(secret_key: bytes) -> bool:
         parsed = dict(parse_qsl(init_data, keep_blank_values=True))
@@ -540,6 +553,8 @@ def _format_payment_method(order: Order) -> str:
         if order.payment_method == "card":
             return "Card"
         return "Platega"
+    if order.payment_provider == "tonconnect":
+        return "TON Wallet"
     if order.payment_provider == "crypto":
         return "CryptoBot"
     return order.payment_provider or "unknown"
@@ -1179,6 +1194,59 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         _release_promo_reservation(order, db)
         _release_bonus_reservation(order, db)
 
+
+async def _toncenter_get_transactions(address: str, limit: int = 20) -> list[dict]:
+    params = {
+        "address": address,
+        "limit": str(limit),
+    }
+    if TONCENTER_API_KEY:
+        params["api_key"] = TONCENTER_API_KEY
+    async with httpx.AsyncClient() as client:
+        r = await client.get(f"{TONCENTER_BASE_URL}/api/v2/getTransactions", params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    return data.get("result") or []
+
+
+async def _sync_tonconnect_order_status(order: Order, db) -> None:
+    if order.payment_provider != "tonconnect" or order.status == "paid":
+        return
+    if not TONCONNECT_WALLET_ADDRESS or not order.payment_amount_nano:
+        return
+
+    try:
+        txs = await _toncenter_get_transactions(TONCONNECT_WALLET_ADDRESS, limit=20)
+    except Exception:
+        logger.exception("[TONCONNECT] Failed to fetch transactions for %s", order.order_id)
+        return
+
+    try:
+        expected = int(order.payment_amount_nano)
+    except (TypeError, ValueError):
+        return
+
+    order_ts = int(order.timestamp.timestamp())
+    for tx in txs:
+        in_msg = tx.get("in_msg") or {}
+        value = in_msg.get("value")
+        if value is None:
+            continue
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            continue
+        if value != expected:
+            continue
+        utime = int(tx.get("utime") or 0)
+        if utime and utime < order_ts - 600:
+            continue
+        order.status = "paid"
+        order.payment_invoice_id = tx.get("transaction_id") or tx.get("hash") or order.payment_invoice_id
+        db.commit()
+        await _fulfill_order_if_needed(order, db)
+        return
+
 def _create_order(
     db,
     order_in: OrderCreateBase,
@@ -1385,6 +1453,66 @@ async def create_order_platega(order: PlategaOrderCreate, request: Request):
         db.close()
 
 
+@app.post("/orders/tonconnect")
+async def create_order_tonconnect(order: TonConnectOrderCreate, request: Request):
+    if order.product_type != "stars":
+        raise HTTPException(status_code=400, detail="Only Stars are supported right now")
+    if not TONCONNECT_WALLET_ADDRESS:
+        raise HTTPException(status_code=503, detail="TON wallet is not configured")
+
+    db = SessionLocal()
+    try:
+        amount_rub = _stars_base_price(order.quantity or 0)
+        promo_percent = 0
+        if order.promo_code:
+            reservation = _get_active_reservation(order.promo_code, order.user_id, db)
+            if not reservation:
+                raise HTTPException(status_code=400, detail="Invalid or expired promo")
+            promo_percent = reservation.percent
+            amount_rub = amount_rub * (1 - promo_percent / 100)
+        order.amount_rub = _round_money(amount_rub) or amount_rub
+
+        amount_ton = await convert_rub_to_crypto(order.amount_rub, "TON")
+        amount_nano = _to_nano(amount_ton)
+        # add small random offset to make amount unique
+        amount_nano += secrets.randbelow(10000) + 1
+
+        init_data = request.headers.get("x-telegram-init-data")
+        user_username = _touch_user_from_initdata(db, order.user_id, init_data)
+        db_order = _create_order(
+            db,
+            order,
+            provider="tonconnect",
+            currency="TON",
+            payment_method="wallet",
+            user_username=user_username,
+        )
+        if order.promo_code and promo_percent:
+            db_order.promo_code = order.promo_code.upper()
+            db_order.promo_percent = promo_percent
+            db_order.amount_rub_original = _stars_base_price(order.quantity or 0)
+            db_order.amount_rub = _round_money(amount_rub) or amount_rub
+            db.query(PromoReservation).filter(
+                PromoReservation.code == db_order.promo_code,
+                PromoReservation.user_id == db_order.user_id
+            ).update({"order_id": db_order.order_id})
+            db.commit()
+
+        db_order.payment_amount = amount_nano / 1_000_000_000
+        db_order.payment_amount_nano = str(amount_nano)
+        db.commit()
+
+        return {
+            "order_id": db_order.order_id,
+            "address": TONCONNECT_WALLET_ADDRESS,
+            "amount_ton": db_order.payment_amount,
+            "amount_nano": db_order.payment_amount_nano,
+            "payload": db_order.order_id
+        }
+    finally:
+        db.close()
+
+
 @app.post("/webhook/crypto")
 async def crypto_webhook(request: Request, crypto_pay_api_signature: str = Header(None)):
     if not crypto_pay_api_signature:
@@ -1538,6 +1666,8 @@ async def last_order_status(user_id: str = Query(...)):
 
         await _sync_crypto_order_status(order, db)
         await _sync_platega_order_status(order, db)
+        await _sync_tonconnect_order_status(order, db)
+        await _sync_tonconnect_order_status(order, db)
         result = {
             "order_id": order.order_id,
             "status": order.status,
@@ -1583,6 +1713,7 @@ async def order_history(user_id: str = Query(...), limit: int = 10):
         for order in orders:
             await _sync_crypto_order_status(order, db)
             await _sync_platega_order_status(order, db)
+            await _sync_tonconnect_order_status(order, db)
             _check_order_expired(order, db)
 
         orders = (

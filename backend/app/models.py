@@ -20,6 +20,8 @@ class Order(Base):
     payment_provider = Column(String)
     payment_method = Column(String, nullable=True)
     user_username = Column(String, nullable=True)
+    payment_amount = Column(Float, nullable=True)
+    payment_amount_nano = Column(String, nullable=True)
     payment_invoice_id = Column(String, nullable=True)
     payment_url = Column(String, nullable=True)
     idempotency_key = Column(String, nullable=True)

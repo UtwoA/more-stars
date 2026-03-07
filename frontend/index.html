@@ -483,9 +483,9 @@
               </button>
               <div class="fee-label">Комиссия 8%</div>
 
-              <button class="btn secondary" id="pay-ton" disabled
-                      style="border-color:#7a7a7a;color:#7a7a7a" data-i18n="ton_pay">
-                TON (скоро)
+              <button class="btn secondary" id="pay-ton"
+                      style="border-color:#2a8bf2;color:#2a8bf2" data-i18n="ton_pay">
+                TON Wallet
               </button>
               <div class="fee-label">Комиссия 0%</div>
             </div>
@@ -572,6 +572,7 @@
   <div class="nav-slot"><div class="nav-item" data-page="profile"><div class="ico">👤</div><div class="label" data-i18n="nav_profile">Profile</div></div></div>
   </nav>
 </div>
+<script src="https://unpkg.com/@tonconnect/ui@0.0.35/dist/tonconnect-ui.min.js"></script>
 <script>
 
 // Данные о покупке
@@ -585,6 +586,16 @@ let bonusExpiresAt = null;
 const BUILD_VERSION = "2026-02-26-01";
 let promoPercent = Number(localStorage.getItem('promoPercent') || 0);
 let promoCode = localStorage.getItem('promoCode') || "";
+let tonConnectUI = null;
+
+function getTonConnectUI() {
+  if (tonConnectUI) return tonConnectUI;
+  if (!window.TON_CONNECT_UI) return null;
+  tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+    manifestUrl: `${window.location.origin}/tonconnect-manifest.json`
+  });
+  return tonConnectUI;
+}
 
 function getStarsRate(quantity) {
   if (quantity <= 1000) return 1.39;
@@ -702,7 +713,7 @@ const translations = {
       crypto_bot: "CryptoBot",
       sbp: "СБП",
       card: "Карта",
-      ton_pay: "TON (скоро)",
+      ton_pay: "TON Wallet",
 
       // Success
       payment_successful: "Оплата прошла успешно! 🎉",
@@ -769,7 +780,7 @@ const translations = {
       crypto_bot: "CryptoBot",
       sbp: "SBP",
       card: "Card",
-      ton_pay: "TON (soon)",
+      ton_pay: "TON Wallet",
 
       // Success
       payment_successful: "Payment successful! 🎉",
@@ -1048,6 +1059,81 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
 }
 
 document.getElementById("pay-sbp").onclick = () => startPlategaPayment(2, "СБП");
+
+document.getElementById("pay-ton").onclick = async () => {
+  if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
+  if (currentPurchase.product_type !== "stars") {
+    const msg = currentLang === "ru"
+      ? "Сейчас доступна оплата только для Stars."
+      : "Only Stars payments are available right now.";
+    alert(msg);
+    return;
+  }
+  const ui = getTonConnectUI();
+  if (!ui) {
+    alert("TON Connect не доступен. Попробуйте позже.");
+    return;
+  }
+
+  try {
+    const userId = getNumericUserId();
+    if (!userId) return;
+    const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
+    const response = await fetch("/orders/tonconnect", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...getAuthHeaders()},
+      body: JSON.stringify({
+        user_id: userId,
+        recipient: currentPurchase.recipient || "self",
+        product_type: currentPurchase.product_type,
+        quantity: currentPurchase.quantity || null,
+        months: currentPurchase.months || null,
+        amount: currentPurchase.amount || null,
+        amount_rub: amountValue,
+        promo_code: promoCode || null
+      })
+    });
+
+    if (!response.ok) {
+      const raw = await response.text();
+      console.error("TON Connect error:", response.status, raw);
+      alert("Не удалось создать платеж. Попробуйте еще раз.");
+      return;
+    }
+
+    const data = await response.json();
+    if (!ui.connected) {
+      await ui.connectWallet();
+    }
+    await ui.sendTransaction({
+      validUntil: Math.floor(Date.now() / 1000) + 600,
+      messages: [
+        {
+          address: data.address,
+          amount: String(data.amount_nano)
+        }
+      ]
+    });
+
+    const orderId = data.order_id;
+    const interval = setInterval(async () => {
+      const statusData = await fetchJsonWithAuth(`/orders/${orderId}`, {headers: getAuthHeaders()});
+      if (!statusData) return;
+      if (statusData.status === "paid") {
+        clearInterval(interval);
+        const title = formatOrderProduct(statusData);
+        openSuccessPage({ title }, statusData.order_id);
+      }
+      if (statusData.status === "failed") {
+        clearInterval(interval);
+        openFailurePage(currentPurchase);
+      }
+    }, 5000);
+  } catch (err) {
+    console.error("Ошибка оплаты через TON:", err);
+    alert("Не удалось создать платеж. Попробуйте еще раз.");
+  }
+};
 
 // Кнопка после удачной оплаты
 document.getElementById("success-back").addEventListener("click", () => {
