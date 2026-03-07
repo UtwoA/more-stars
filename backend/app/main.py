@@ -19,7 +19,7 @@ from sqlalchemy import text
 from zoneinfo import ZoneInfo
 
 from .crypto_pay import verify_signature
-from .crypto import convert_rub_to_crypto, convert_to_rub, get_usdtrub_rate
+from .crypto import convert_rub_to_crypto, convert_to_rub, get_usdtrub_rate, get_moex_usdrub_rate
 from .database import SessionLocal, Base, engine
 from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting
 from .utils import now_msk
@@ -53,6 +53,7 @@ REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
 BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "00:00")
 STAR_COST_USD_PER_100 = float(os.getenv("STAR_COST_USD_PER_100", "1.5"))
+STAR_COST_RATE_SOURCE = os.getenv("STAR_COST_RATE_SOURCE", "moex").lower()
 
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
@@ -621,7 +622,12 @@ async def _send_audit_if_needed(order: Order, db) -> None:
     revenue_line = ""
     try:
         total_stars = int(order.quantity or 0) + int(order.bonus_stars_applied or 0)
-        usdtrub = await get_usdtrub_rate()
+        if STAR_COST_RATE_SOURCE == "moex":
+            usdtrub = await get_moex_usdrub_rate()
+            rate_label = "MOEX USD/RUB"
+        else:
+            usdtrub = await get_usdtrub_rate()
+            rate_label = "Binance USDTRUB"
         cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
         cost_rub = cost_usd * usdtrub
         revenue = _round_money(order.amount_rub) or 0
@@ -633,7 +639,7 @@ async def _send_audit_if_needed(order: Order, db) -> None:
             f"\n📦 Себестоимость: {cost_rub} ₽"
             f"\n📊 Себестоимость/звезда: {per_star} ₽"
             f"\n📈 Прибыль: {profit} ₽"
-            f"\n💱 Курс USDTRUB: {_round_money(usdtrub)} ₽"
+            f"\n💱 Курс {rate_label}: {_round_money(usdtrub)} ₽"
         )
     except Exception:
         logger.exception("[AUDIT] Failed to compute revenue")

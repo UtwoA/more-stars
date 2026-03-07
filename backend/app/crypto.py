@@ -1,11 +1,40 @@
 import httpx
+import time
 
 BINANCE_API = "https://api.binance.com/api/v3/ticker/price"
+MOEX_API = "https://iss.moex.com/iss/engines/currency/markets/selt/boards/CETS/securities"
+
+_moex_cache_rate: float | None = None
+_moex_cache_ts: float | None = None
 
 async def get_usdtrub_rate() -> float:
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{BINANCE_API}?symbol=USDTRUB")
         return float(r.json()["price"])
+
+
+async def get_moex_usdrub_rate(cache_ttl: int = 300) -> float:
+    global _moex_cache_rate, _moex_cache_ts
+    now = time.time()
+    if _moex_cache_rate is not None and _moex_cache_ts is not None:
+        if now - _moex_cache_ts < cache_ttl:
+            return _moex_cache_rate
+
+    symbols = ["USD000UTSTOM", "USD000000TOD"]
+    params = "iss.meta=off&iss.only=marketdata&marketdata.columns=LAST"
+    async with httpx.AsyncClient() as client:
+        for symbol in symbols:
+            url = f"{MOEX_API}/{symbol}.json?{params}"
+            r = await client.get(url, timeout=10)
+            r.raise_for_status()
+            data = r.json().get("marketdata", {}).get("data") or []
+            if data and data[0] and data[0][0]:
+                rate = float(data[0][0])
+                _moex_cache_rate = rate
+                _moex_cache_ts = now
+                return rate
+
+    raise ValueError("MOEX USD/RUB rate not available")
 
 # -------------------------
 # КРИПТО → RUB
