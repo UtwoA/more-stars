@@ -585,6 +585,7 @@
   <div class="modal-card">
     <h3 id="raffle-prize-title" data-i18n="raffle_prize_title">Призы</h3>
     <img id="raffle-prize-image" src="" alt="prize" style="width:100%;border-radius:12px;display:none;margin-bottom:10px;" />
+    <a id="raffle-prize-link" href="#" target="_blank" rel="noopener" style="display:none;margin-bottom:10px;color:var(--accentA);word-break:break-all;"></a>
     <div id="raffle-prize-name" style="font-weight:700;margin-bottom:6px;"></div>
     <div id="raffle-prize-desc" style="color:var(--muted);font-size:13px;"></div>
     <button id="raffle-prize-close" class="btn secondary" style="margin-top:12px;" data-i18n="close">Закрыть</button>
@@ -2033,14 +2034,42 @@ async function loadRaffle(retries = 4) {
   const prizeTitle = document.getElementById("raffle-prize-name");
   const prizeDesc = document.getElementById("raffle-prize-desc");
   const prizeImage = document.getElementById("raffle-prize-image");
+  const prizeLink = document.getElementById("raffle-prize-link");
   if (prizeTitle) prizeTitle.textContent = prize.title || "";
   if (prizeDesc) prizeDesc.textContent = prize.description || "";
   if (prizeImage) {
-    if (prize.image) {
-      prizeImage.src = prize.image;
+    const url = prize.image || "";
+    const isImage = /\.(png|jpe?g|gif|webp)$/i.test(url);
+    if (url && isImage) {
+      prizeImage.src = url;
       prizeImage.style.display = "block";
     } else {
       prizeImage.style.display = "none";
+    }
+  }
+  if (prizeLink) {
+    const url = prize.image || "";
+    if (url && !/\.(png|jpe?g|gif|webp)$/i.test(url)) {
+      try {
+        const preview = await fetchJsonWithAuth(`/api/raffle/prize/preview?url=${encodeURIComponent(url)}`);
+        if (preview?.image) {
+          prizeImage.src = preview.image;
+          prizeImage.style.display = "block";
+        }
+        if (preview?.title) {
+          prizeTitle.textContent = preview.title;
+        }
+        if (preview?.description && !prizeDesc.textContent) {
+          prizeDesc.textContent = preview.description;
+        }
+      } catch (e) {
+        // fallback to link only
+      }
+      prizeLink.href = url;
+      prizeLink.textContent = url;
+      prizeLink.style.display = "block";
+    } else {
+      prizeLink.style.display = "none";
     }
   }
 }

@@ -12,6 +12,7 @@ from datetime import timedelta, datetime, time
 from urllib.parse import parse_qsl, unquote_plus
 
 import httpx
+import re
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query, Header, HTTPException
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
@@ -440,6 +441,18 @@ def _round_money(value: float | None) -> float | None:
     if value is None:
         return None
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _parse_og_meta(html: str) -> dict:
+    def _find(prop: str) -> str | None:
+        pattern = re.compile(rf'<meta[^>]+property=["\']{prop}["\'][^>]+content=["\']([^"\']+)["\']', re.IGNORECASE)
+        match = pattern.search(html)
+        return match.group(1).strip() if match else None
+    return {
+        "title": _find("og:title"),
+        "image": _find("og:image"),
+        "description": _find("og:description"),
+    }
 
 
 def _next_draw_dates(now: datetime) -> list[datetime]:
@@ -2363,6 +2376,21 @@ async def public_settings():
         }
     finally:
         db.close()
+
+
+@app.get("/raffle/prize/preview")
+async def raffle_prize_preview(url: str = Query(...)):
+    if not url.startswith("https://t.me/nft/"):
+        raise HTTPException(status_code=400, detail="Only t.me/nft links are allowed")
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            r.raise_for_status()
+            meta = _parse_og_meta(r.text)
+        return {"ok": True, **meta}
+    except Exception as exc:
+        logger.exception("[RAFFLE] Failed to fetch prize preview")
+        raise HTTPException(status_code=502, detail="Failed to fetch prize preview") from exc
 
 
 @app.get("/admin/audit/today")
