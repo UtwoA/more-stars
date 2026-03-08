@@ -45,7 +45,8 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
         )
         await message.answer(
             "Привет! Это More Stars.\n"
-            "Нажмите кнопку ниже, чтобы открыть приложение.",
+            "Нажмите кнопку ниже, чтобы открыть приложение.\n"
+            "Скидки и промокоды — в нашем телеграм-канале.",
             reply_markup=kb,
         )
 
