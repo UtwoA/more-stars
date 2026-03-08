@@ -49,7 +49,7 @@ ADMIN_CHAT_IDS = {
     item.strip() for item in (os.getenv("ADMIN_CHAT_ID") or "").split(",") if item.strip()
 }
 MINI_APP_URL = os.getenv("MINI_APP_URL")
-REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "5"))
+REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "7"))
 BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
 ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "00:00")
 STAR_COST_USD_PER_100 = float(os.getenv("STAR_COST_USD_PER_100", "1.5"))

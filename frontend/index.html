@@ -81,6 +81,28 @@
       border:1px solid rgba(255,255,255,0.06);
       box-shadow:none;
     }
+    .info-btn{
+      width:22px;height:22px;border-radius:50%;
+      display:inline-flex;align-items:center;justify-content:center;
+      font-size:12px;font-weight:800;
+      color:var(--text);
+      background:rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.12);
+      cursor:pointer;
+    }
+    .modal{
+      position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+      background:rgba(0,0,0,0.55);backdrop-filter: blur(6px);
+      z-index:9999;padding:20px;
+    }
+    .modal.open{display:flex;}
+    .modal-card{
+      width:100%;max-width:520px;background:var(--bg-2);
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:16px;padding:16px;box-shadow:var(--shadow-1);
+    }
+    .modal-card h3{margin:0 0 8px 0;font-size:16px;}
+    .modal-card p{margin:8px 0;color:var(--muted);font-size:13px;line-height:1.45;}
 
     .popular {
       display:grid;
@@ -356,7 +378,10 @@
         </div>
 
     <div class="card">
-      <div style="font-weight:800;margin-bottom:8px" data-i18n="referral_system">Реферальная система</div>
+      <div style="font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+        <span data-i18n="referral_system">Реферальная система</span>
+        <button id="ref-info-btn" class="info-btn" aria-label="Info">i</button>
+      </div>
       <div class="label" data-i18n="your_link">Ваша ссылка</div>
       <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</a>
       <button id="ref-share" class="btn secondary" style="margin-top:10px;" data-i18n="share_ref">Поделиться</button>
@@ -411,6 +436,20 @@
     </div>
   </div>
 </section>
+
+<div id="ref-info-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="ref-info-title">
+  <div class="modal-card">
+    <h3 id="ref-info-title" data-i18n="ref_info_title">Как работает реферальная программа</h3>
+    <p data-i18n="ref_info_p1">Вы получаете 7% от количества звёзд, которое покупает ваш реферал. Это примерно половина нашей прибыли — выгодно для партнёров.</p>
+    <p data-i18n="ref_info_p2">Пример: друг купил 10&nbsp;000 звёзд → вам начислится 700 звёзд.</p>
+    <p data-i18n="ref_info_p3">Начисления идут с каждой покупки без ограничений по времени.</p>
+    <p data-i18n="ref_info_p4">Приглашено — количество пользователей, которые впервые открыли приложение по вашей ссылке.</p>
+    <p data-i18n="ref_info_p5">Мой баланс — все звёзды, начисленные за рефералов. Эти звёзды можно вывести.</p>
+    <p data-i18n="ref_info_p6">Вывод через поддержку, минимальная сумма — 300 звёзд.</p>
+    <p data-i18n="ref_info_p7">Пользователь закрепляется за тем, кто пригласил его первым.</p>
+    <button id="ref-info-close" class="btn secondary" data-i18n="close">Закрыть</button>
+  </div>
+</div>
 
     <section id="shop" class="page active">
       <img src="icon-1.png" alt="More Stars" class="logo" loading="eager" fetchpriority="high" decoding="sync" />
@@ -688,6 +727,14 @@ const translations = {
       contact_us: "Связаться с нами",
       channel: "Канал",
       support: "Поддержка",
+      ref_info_title: "Как работает реферальная программа",
+      ref_info_p1: "Вы получаете 7% от количества звёзд, которое покупает ваш реферал. Это примерно половина нашей прибыли — выгодно для партнёров.",
+      ref_info_p2: "Пример: друг купил 10 000 звёзд → вам начислится 700 звёзд.",
+      ref_info_p3: "Начисления идут с каждой покупки без ограничений по времени.",
+      ref_info_p4: "Приглашено — количество пользователей, которые впервые открыли приложение по вашей ссылке.",
+      ref_info_p5: "Мой баланс — все звёзды, начисленные за рефералов. Эти звёзды можно вывести.",
+      ref_info_p6: "Вывод через поддержку, минимальная сумма — 300 звёзд.",
+      ref_info_p7: "Пользователь закрепляется за тем, кто пригласил его первым.",
       nav_history: "История",
       nav_shop: "Магазин",
       nav_profile: "Профиль",
@@ -756,6 +803,14 @@ const translations = {
       contact_us: "Contact us",
       channel: "Channel",
       support: "Support",
+      ref_info_title: "How the referral program works",
+      ref_info_p1: "You earn 7% of the stars your referral buys. It’s roughly half of our profit — a strong partner benefit.",
+      ref_info_p2: "Example: a friend buys 10,000 stars → you get 700 stars.",
+      ref_info_p3: "Rewards apply to every purchase with no time limit.",
+      ref_info_p4: "Invited shows how many users first opened the app via your link.",
+      ref_info_p5: "My balance is the total stars earned from referrals. You can withdraw these stars.",
+      ref_info_p6: "Withdrawals are handled by support, minimum 300 stars.",
+      ref_info_p7: "A user is tied to the first inviter.",
       nav_history: "History",
       nav_shop: "Shop",
       nav_profile: "Profile",
@@ -1166,6 +1221,19 @@ document.getElementById("contact-support").addEventListener("click", () => {
 });
 document.getElementById("contact-channel").addEventListener("click", () => {
   window.open("https://t.me/more_stars_channel", "_blank");
+});
+const refInfoModal = document.getElementById("ref-info-modal");
+document.getElementById("ref-info-btn").addEventListener("click", () => {
+  refInfoModal.classList.add("open");
+});
+document.getElementById("ref-info-close").addEventListener("click", () => {
+  refInfoModal.classList.remove("open");
+});
+refInfoModal.addEventListener("click", (e) => {
+  if (e.target === refInfoModal) refInfoModal.classList.remove("open");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") refInfoModal.classList.remove("open");
 });
 
 // Promo code
