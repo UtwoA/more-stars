@@ -460,6 +460,20 @@ def _next_draw_dates(now: datetime) -> list[datetime]:
     return [_safe_date(next_year, next_month, 15), _safe_date(next_year, next_month, 30)]
 
 
+def _raffle_period(now: datetime) -> tuple[datetime, datetime]:
+    year = now.year
+    month = now.month
+    if now.day <= 15:
+        start = datetime(year, month, 1, 0, 0, 0, tzinfo=now.tzinfo)
+        end = datetime(year, month, 16, 0, 0, 0, tzinfo=now.tzinfo)
+    else:
+        start = datetime(year, month, 16, 0, 0, 0, tzinfo=now.tzinfo)
+        next_month = month + 1 if month < 12 else 1
+        next_year = year if month < 12 else year + 1
+        end = datetime(next_year, next_month, 1, 0, 0, 0, tzinfo=now.tzinfo)
+    return start, end
+
+
 def _to_nano(ton_amount: float) -> int:
     return int(Decimal(str(ton_amount)) * Decimal("1000000000"))
 
@@ -2542,12 +2556,19 @@ async def profile_summary(user_id: str = Query(...), request: Request = None):
 async def raffle_summary(user_id: str = Query(...)):
     db = SessionLocal()
     try:
+        now = now_msk()
+        period_start, period_end = _raffle_period(now)
         totals = (
             db.query(
                 Order.user_id.label("user_id"),
                 func.sum(Order.quantity).label("total")
             )
-            .filter(Order.status == "paid", Order.product_type == "stars")
+            .filter(
+                Order.status == "paid",
+                Order.product_type == "stars",
+                Order.timestamp >= period_start,
+                Order.timestamp < period_end,
+            )
             .group_by(Order.user_id)
             .subquery()
         )
@@ -2593,8 +2614,8 @@ async def raffle_summary(user_id: str = Query(...)):
                 "chance_percent": chance,
             })
 
-        now = now_msk()
         next_draws = [d.isoformat() for d in _next_draw_dates(now)]
+        is_draw_day = now.day in (15, 30)
         chance_percent = 0.0
         if total_all and user_total:
             chance_percent = float(Decimal(str(user_total / total_all * 100)).quantize(Decimal("0.01")))
@@ -2604,6 +2625,8 @@ async def raffle_summary(user_id: str = Query(...)):
             "description": _get_setting(db, "RAFFLE_PRIZE_DESC", "Победитель получит приз после розыгрыша."),
             "image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
         }
+
+        winner = top[0] if top else None
 
         return {
             "next_draws": next_draws,
@@ -2616,6 +2639,10 @@ async def raffle_summary(user_id: str = Query(...)):
                 "chance_percent": chance_percent,
             },
             "prize": prize,
+            "draw_day": is_draw_day,
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "winner": winner,
             "total_participants": int(db.query(func.count()).select_from(totals).scalar() or 0),
             "total_stars": int(total_all or 0),
         }

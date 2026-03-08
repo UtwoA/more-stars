@@ -116,6 +116,9 @@
       box-shadow: inset 0 0 26px rgba(0,0,0,0.35);
       animation: slowSpin 14s linear infinite;
     }
+    .wheel-slices.spin-fast{
+      animation: slowSpin 3.2s linear infinite;
+    }
     .wheel-slices::after{
       content:"";
       position:absolute; inset:14px;
@@ -156,6 +159,15 @@
       font-size:13px;
     }
     .raffle-line:last-child{ border-bottom:0; }
+    .raffle-winner{
+      margin-top:8px;
+      padding:10px 12px;
+      border-radius:12px;
+      background: rgba(255,209,102,0.08);
+      border:1px solid rgba(255,209,102,0.2);
+      color:#ffd166;
+      font-size:12px;
+    }
     .history-modal-list{
       max-height: 360px;
       overflow: auto;
@@ -433,6 +445,7 @@
           <div style="font-weight:700;margin-bottom:6px" data-i18n="raffle_user">Ваш вклад</div>
           <div class="value" id="raffle-user-line">—</div>
           <div style="margin-top:6px;color:var(--muted);font-size:12px" id="raffle-user-chance">—</div>
+          <div id="raffle-winner" class="raffle-winner" style="display:none;"></div>
         </div>
         <div class="card">
           <div style="font-weight:700;margin-bottom:8px" data-i18n="raffle_top">Топ-10 покупателей</div>
@@ -1968,6 +1981,7 @@ async function loadRaffle(retries = 4) {
 
   const userLine = document.getElementById("raffle-user-line");
   const userChance = document.getElementById("raffle-user-chance");
+  const winnerEl = document.getElementById("raffle-winner");
   if (userLine) {
     const u = data.user || {};
     const name = u.display ? u.display : `id ${u.user_id || userId}`;
@@ -1980,6 +1994,27 @@ async function loadRaffle(retries = 4) {
     userChance.textContent = currentLang === "ru"
       ? `Шанс на победу: ${chance}%`
       : `Winning chance: ${chance}%`;
+  }
+
+  const drawDay = !!data.draw_day;
+  if (wheel) {
+    if (drawDay && data.winner) {
+      wheel.classList.add("spin-fast");
+    } else {
+      wheel.classList.remove("spin-fast");
+    }
+  }
+  if (winnerEl) {
+    if (drawDay && data.winner) {
+      const w = data.winner;
+      const name = w.display ? w.display : `id ${w.user_id}`;
+      winnerEl.style.display = "block";
+      winnerEl.textContent = currentLang === "ru"
+        ? `Победитель дня: ${name} — ${w.total_stars || 0} ⭐`
+        : `Winner of the day: ${name} — ${w.total_stars || 0} ⭐`;
+    } else {
+      winnerEl.style.display = "none";
+    }
   }
 
   const prize = data.prize || {};
