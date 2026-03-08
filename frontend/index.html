@@ -81,15 +81,6 @@
       border:1px solid rgba(255,255,255,0.06);
       box-shadow:none;
     }
-    .info-btn{
-      width:22px;height:22px;border-radius:50%;
-      display:inline-flex;align-items:center;justify-content:center;
-      font-size:12px;font-weight:800;
-      color:var(--text);
-      background:rgba(255,255,255,0.08);
-      border:1px solid rgba(255,255,255,0.12);
-      cursor:pointer;
-    }
     .modal{
       position:fixed;inset:0;display:none;align-items:center;justify-content:center;
       background:rgba(0,0,0,0.55);backdrop-filter: blur(6px);
@@ -378,13 +369,11 @@
         </div>
 
     <div class="card">
-      <div style="font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-        <span data-i18n="referral_system">Реферальная система</span>
-        <button id="ref-info-btn" class="info-btn" aria-label="Info">i</button>
-      </div>
+      <div style="font-weight:800;margin-bottom:8px;" data-i18n="referral_system">Реферальная система</div>
       <div class="label" data-i18n="your_link">Ваша ссылка</div>
       <a id="ref-link" class="value" href="#" target="_blank" style="color:var(--accentA);display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</a>
-      <button id="ref-share" class="btn secondary" style="margin-top:10px;" data-i18n="share_ref">Поделиться</button>
+      <button id="ref-share" class="btn" style="margin-top:10px;" data-i18n="share_ref">Поделиться</button>
+      <button id="ref-info-btn" class="btn secondary" style="margin-top:10px;" data-i18n="ref_details">Подробнее</button>
       <div style="margin-top:12px"><div class="label" data-i18n="invited">Приглашено</div><div class="value" id="ref-count">0</div></div>
       <div style="margin-top:12px"><div class="label" data-i18n="ref_balance">Баланс звёзд</div><div class="value" id="ref-balance">0</div></div>
     </div>
@@ -724,6 +713,7 @@ const translations = {
       share_ref: "Поделиться",
       invited: "Приглашено",
       ref_balance: "Баланс звёзд",
+      ref_details: "Подробнее",
       contact_us: "Связаться с нами",
       channel: "Канал",
       support: "Поддержка",
@@ -800,6 +790,7 @@ const translations = {
       share_ref: "Share",
       invited: "Invited",
       ref_balance: "Stars balance",
+      ref_details: "Details",
       contact_us: "Contact us",
       channel: "Channel",
       support: "Support",
