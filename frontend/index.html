@@ -234,14 +234,6 @@
       margin-bottom:8px;
       font-size:12px;
     }
-    .history-filter{
-      display:flex; gap:8px; margin:8px 0 12px 0;
-    }
-    .history-filter input{
-      flex:1; background:#0e1116; color:var(--text);
-      border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:8px 10px;
-      font-size:12px;
-    }
 
     .popular {
       display:grid;
@@ -626,10 +618,6 @@
 <div id="history-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
   <div class="modal-card">
     <h3 id="history-modal-title" data-i18n="last_purchases">Последние покупки</h3>
-    <div class="history-filter">
-      <input id="history-from" type="date" />
-      <input id="history-to" type="date" />
-    </div>
     <div id="history-modal-list" class="history-modal-list"></div>
     <div id="history-modal-empty" style="margin-top:8px;color:var(--muted);font-size:12px;display:none;" data-i18n="history_empty">Здесь будет история операций</div>
     <button id="history-modal-close" class="btn secondary" style="margin-top:12px;" data-i18n="close">Закрыть</button>
@@ -1472,33 +1460,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") rafflePrizeModal.classList.remove("open");
 });
 const historyModal = document.getElementById("history-modal");
-const historyFrom = document.getElementById("history-from");
-const historyTo = document.getElementById("history-to");
-function applyHistoryFilter() {
-  if (!historyCache || historyCache.length === 0) {
-    renderHistoryItems([], "history-modal-list", "history-modal-empty", true);
-    return;
-  }
-  const fromVal = historyFrom?.value ? new Date(historyFrom.value) : null;
-  const toVal = historyTo?.value ? new Date(historyTo.value) : null;
-  const filtered = historyCache.filter(item => {
-    const ts = new Date(item.timestamp);
-    if (fromVal && ts < fromVal) return false;
-    if (toVal) {
-      const end = new Date(toVal);
-      end.setHours(23, 59, 59, 999);
-      if (ts > end) return false;
-    }
-    return true;
-  });
-  renderHistoryItems(filtered, "history-modal-list", "history-modal-empty", true);
-}
 document.getElementById("history-more").addEventListener("click", () => {
   const userId = getNumericUserId();
   if (!userId) return;
   historyModal.classList.add("open");
-  if (historyFrom) historyFrom.value = "";
-  if (historyTo) historyTo.value = "";
   loadHistory(userId, 200, "history-modal-list", "history-modal-empty", null, true);
 });
 document.getElementById("history-modal-close").addEventListener("click", () => {
@@ -1510,8 +1475,6 @@ historyModal.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") historyModal.classList.remove("open");
 });
-if (historyFrom) historyFrom.addEventListener("change", applyHistoryFilter);
-if (historyTo) historyTo.addEventListener("change", applyHistoryFilter);
 
 // Promo code
 document.getElementById("promo-apply").addEventListener("click", async () => {
