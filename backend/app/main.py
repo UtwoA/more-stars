@@ -874,7 +874,13 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
         percent = _get_setting_int(db, "REFERRAL_PERCENT", REFERRAL_PERCENT)
         bonus = int(order.quantity * percent / 100)
         if bonus > 0:
-            user.referral_balance_stars = (user.referral_balance_stars or 0) + bonus
+            referrer = db.query(User).filter(User.user_id == user.referrer_id).first()
+            if not referrer:
+                referrer = User(user_id=user.referrer_id)
+                db.add(referrer)
+                db.commit()
+                db.refresh(referrer)
+            referrer.referral_balance_stars = (referrer.referral_balance_stars or 0) + bonus
             earning = ReferralEarning(
                 referrer_id=user.referrer_id,
                 referred_user_id=order.user_id,
