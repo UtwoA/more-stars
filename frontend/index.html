@@ -1986,8 +1986,7 @@ async function loadRaffle(retries = 4) {
           userStart = start;
           userEnd = end;
         }
-        const mid = start + (pct * 0.55);
-        const seg = `${color} ${start}% ${mid}%, ${shade(color, -25)} ${mid}% ${end}%`;
+        const seg = `${color} ${start}% ${end}%`;
         start = end;
         return seg;
       });
