@@ -123,6 +123,20 @@
       background: var(--bg-2); border:1px solid rgba(255,255,255,0.08);
       padding:10px 16px; border-radius:999px; font-weight:700; font-size:13px;
       box-shadow: 0 8px 18px rgba(0,0,0,0.35);
+      cursor:pointer;
+    }
+    .wheel-labels{
+      position:absolute; inset:34px;
+      display:grid; grid-template-columns:1fr 1fr; gap:6px;
+      color:rgba(233,238,247,0.85); font-size:11px; line-height:1.1;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+      pointer-events:none;
+    }
+    .wheel-labels .tag{
+      background: rgba(0,0,0,0.25);
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:10px; padding:4px 6px; text-align:center;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
     }
     .raffle-line{
       display:flex; justify-content:space-between; gap:8px;
@@ -375,6 +389,7 @@
           <div class="wheel-wrap">
             <div class="wheel-pointer"></div>
             <div id="raffle-wheel" class="wheel"></div>
+            <div id="raffle-labels" class="wheel-labels"></div>
             <div class="wheel-center" data-i18n="raffle_wheel">Шансы</div>
           </div>
         </div>
@@ -510,6 +525,16 @@
     <div id="history-modal-list"></div>
     <div id="history-modal-empty" style="margin-top:8px;color:var(--muted);font-size:12px;display:none;" data-i18n="history_empty">Здесь будет история операций</div>
     <button id="history-modal-close" class="btn secondary" style="margin-top:12px;" data-i18n="close">Закрыть</button>
+  </div>
+</div>
+
+<div id="raffle-prize-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="raffle-prize-title">
+  <div class="modal-card">
+    <h3 id="raffle-prize-title" data-i18n="raffle_prize_title">Призы</h3>
+    <img id="raffle-prize-image" src="" alt="prize" style="width:100%;border-radius:12px;display:none;margin-bottom:10px;" />
+    <div id="raffle-prize-name" style="font-weight:700;margin-bottom:6px;"></div>
+    <div id="raffle-prize-desc" style="color:var(--muted);font-size:13px;"></div>
+    <button id="raffle-prize-close" class="btn secondary" style="margin-top:12px;" data-i18n="close">Закрыть</button>
   </div>
 </div>
 
@@ -804,10 +829,11 @@ const translations = {
       nav_profile: "Профиль",
       raffle_title: "Розыгрыш",
       raffle_sub: "Каждые 15 и 30 числа месяца проходит розыгрыш среди покупателей звёзд.",
-      raffle_wheel: "Шансы",
+      raffle_wheel: "Призы",
       raffle_user: "Ваш вклад",
       raffle_top: "Топ-10 покупателей",
       raffle_empty: "Пока нет данных",
+      raffle_prize_title: "Призы",
       bonus_title: "Бонусные звёзды",
       bonus_chip: "Бонус",
       bonus_balance: "Бонусный баланс",
@@ -888,10 +914,11 @@ const translations = {
       nav_profile: "Profile",
       raffle_title: "Raffle",
       raffle_sub: "Every month on the 15th and 30th we draw among Stars buyers.",
-      raffle_wheel: "Chances",
+      raffle_wheel: "Prizes",
       raffle_user: "Your contribution",
       raffle_top: "Top 10 buyers",
       raffle_empty: "No data yet",
+      raffle_prize_title: "Prizes",
       bonus_title: "Bonus stars",
       bonus_chip: "Bonus",
       bonus_balance: "Bonus balance",
@@ -1312,6 +1339,22 @@ refInfoModal.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") refInfoModal.classList.remove("open");
+});
+const rafflePrizeModal = document.getElementById("raffle-prize-modal");
+const raffleWheelCenter = document.querySelector(".wheel-center");
+if (raffleWheelCenter) {
+  raffleWheelCenter.addEventListener("click", () => {
+    rafflePrizeModal.classList.add("open");
+  });
+}
+document.getElementById("raffle-prize-close").addEventListener("click", () => {
+  rafflePrizeModal.classList.remove("open");
+});
+rafflePrizeModal.addEventListener("click", (e) => {
+  if (e.target === rafflePrizeModal) rafflePrizeModal.classList.remove("open");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") rafflePrizeModal.classList.remove("open");
 });
 const historyModal = document.getElementById("history-modal");
 document.getElementById("history-more").addEventListener("click", () => {
@@ -1829,11 +1872,25 @@ async function loadRaffle(retries = 4) {
   const emptyEl = document.getElementById("raffle-empty");
   if (topEl) topEl.innerHTML = "";
   if (emptyEl) emptyEl.style.display = top.length ? "none" : "block";
+  const labels = document.getElementById("raffle-labels");
+  if (labels) {
+    labels.innerHTML = "";
+    top.slice(0, 4).forEach((item, idx) => {
+      const tag = document.createElement("div");
+      tag.className = "tag";
+      const name = item.display ? item.display : `id ${item.user_id}`;
+      const pct = Number(item.chance_percent || 0).toFixed(2);
+      tag.textContent = `${name} • ${pct}%`;
+      labels.appendChild(tag);
+    });
+  }
+
   top.forEach((item, idx) => {
     const line = document.createElement("div");
     line.className = "raffle-line";
     const name = item.display ? item.display : `id ${item.user_id}`;
-    line.innerHTML = `<div>${idx + 1}. ${name}</div><div>${item.total_stars} ⭐</div>`;
+    const pct = Number(item.chance_percent || 0).toFixed(2);
+    line.innerHTML = `<div>${idx + 1}. ${name}</div><div>${item.total_stars} ⭐ · ${pct}%</div>`;
     topEl.appendChild(line);
   });
 
@@ -1850,6 +1907,21 @@ async function loadRaffle(retries = 4) {
     userChance.textContent = currentLang === "ru"
       ? `Шанс на победу: ${chance}%`
       : `Winning chance: ${chance}%`;
+  }
+
+  const prize = data.prize || {};
+  const prizeTitle = document.getElementById("raffle-prize-name");
+  const prizeDesc = document.getElementById("raffle-prize-desc");
+  const prizeImage = document.getElementById("raffle-prize-image");
+  if (prizeTitle) prizeTitle.textContent = prize.title || "";
+  if (prizeDesc) prizeDesc.textContent = prize.description || "";
+  if (prizeImage) {
+    if (prize.image) {
+      prizeImage.src = prize.image;
+      prizeImage.style.display = "block";
+    } else {
+      prizeImage.style.display = "none";
+    }
   }
 }
 

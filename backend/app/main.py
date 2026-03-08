@@ -1995,6 +1995,18 @@ def _admin_panel_html(authed: bool) -> str:
         <label class="muted">Rate tier 3 (>5000)</label>
         <input class="input" id="rate3" type="number" step="0.01"/>
       </div>
+      <div class="field">
+        <label class="muted">Raffle prize title</label>
+        <input class="input" id="raffle_prize_title" placeholder="NFT-подарок или бонусные звёзды"/>
+      </div>
+      <div class="field">
+        <label class="muted">Raffle prize description</label>
+        <input class="input" id="raffle_prize_desc" placeholder="Победитель получит приз после розыгрыша."/>
+      </div>
+      <div class="field">
+        <label class="muted">Raffle prize image URL</label>
+        <input class="input" id="raffle_prize_image" placeholder="https://..."/>
+      </div>
       <button class="btn" onclick="saveSettings()" style="margin-top:10px">Save settings</button>
       <div id="settings-status" class="muted"></div>
     </div>
@@ -2069,6 +2081,9 @@ def _admin_panel_html(authed: bool) -> str:
       document.getElementById('rate1').value = data.stars_rate_1 ?? '';
       document.getElementById('rate2').value = data.stars_rate_2 ?? '';
       document.getElementById('rate3').value = data.stars_rate_3 ?? '';
+      document.getElementById('raffle_prize_title').value = data.raffle_prize_title ?? '';
+      document.getElementById('raffle_prize_desc').value = data.raffle_prize_desc ?? '';
+      document.getElementById('raffle_prize_image').value = data.raffle_prize_image ?? '';
     }
     async function saveSettings(){
       const payload = {
@@ -2077,6 +2092,9 @@ def _admin_panel_html(authed: bool) -> str:
         stars_rate_1: Number(document.getElementById('rate1').value || 0) || null,
         stars_rate_2: Number(document.getElementById('rate2').value || 0) || null,
         stars_rate_3: Number(document.getElementById('rate3').value || 0) || null,
+        raffle_prize_title: document.getElementById('raffle_prize_title').value.trim() || null,
+        raffle_prize_desc: document.getElementById('raffle_prize_desc').value.trim() || null,
+        raffle_prize_image: document.getElementById('raffle_prize_image').value.trim() || null,
       };
       const res = await fetch('/admin/settings', {
         method:'POST',
@@ -2185,6 +2203,9 @@ class AdminSettingsPayload(BaseModel):
     stars_rate_1: float | None = None
     stars_rate_2: float | None = None
     stars_rate_3: float | None = None
+    raffle_prize_title: str | None = None
+    raffle_prize_desc: str | None = None
+    raffle_prize_image: str | None = None
 
 
 @app.get("/admin/settings")
@@ -2198,6 +2219,9 @@ async def admin_settings(request: Request):
             "stars_rate_1": _get_setting_float(db, "STARS_RATE_1", 1.39),
             "stars_rate_2": _get_setting_float(db, "STARS_RATE_2", 1.37),
             "stars_rate_3": _get_setting_float(db, "STARS_RATE_3", 1.35),
+            "raffle_prize_title": _get_setting(db, "RAFFLE_PRIZE_TITLE", "NFT-подарок или бонусные звёзды"),
+            "raffle_prize_desc": _get_setting(db, "RAFFLE_PRIZE_DESC", "Победитель получит приз после розыгрыша."),
+            "raffle_prize_image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
         }
     finally:
         db.close()
@@ -2214,6 +2238,9 @@ async def admin_settings_update(request: Request, payload: AdminSettingsPayload)
             "STARS_RATE_1": payload.stars_rate_1,
             "STARS_RATE_2": payload.stars_rate_2,
             "STARS_RATE_3": payload.stars_rate_3,
+            "RAFFLE_PRIZE_TITLE": payload.raffle_prize_title,
+            "RAFFLE_PRIZE_DESC": payload.raffle_prize_desc,
+            "RAFFLE_PRIZE_IMAGE": payload.raffle_prize_image,
         }
         for key, value in updates.items():
             if value is None:
@@ -2556,10 +2583,14 @@ async def raffle_summary(user_id: str = Query(...)):
         top = []
         for row in top_rows:
             total = int(row.total or 0)
+            chance = 0.0
+            if total_all:
+                chance = float(Decimal(str(total / total_all * 100)).quantize(Decimal("0.01")))
             top.append({
                 "user_id": row.user_id,
                 "display": user_map.get(row.user_id),
                 "total_stars": total,
+                "chance_percent": chance,
             })
 
         now = now_msk()
@@ -2567,6 +2598,12 @@ async def raffle_summary(user_id: str = Query(...)):
         chance_percent = 0.0
         if total_all and user_total:
             chance_percent = float(Decimal(str(user_total / total_all * 100)).quantize(Decimal("0.01")))
+
+        prize = {
+            "title": _get_setting(db, "RAFFLE_PRIZE_TITLE", "NFT-подарок или бонусные звёзды"),
+            "description": _get_setting(db, "RAFFLE_PRIZE_DESC", "Победитель получит приз после розыгрыша."),
+            "image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
+        }
 
         return {
             "next_draws": next_draws,
@@ -2578,6 +2615,7 @@ async def raffle_summary(user_id: str = Query(...)):
                 "rank": rank,
                 "chance_percent": chance_percent,
             },
+            "prize": prize,
             "total_participants": int(db.query(func.count()).select_from(totals).scalar() or 0),
             "total_stars": int(total_all or 0),
         }
