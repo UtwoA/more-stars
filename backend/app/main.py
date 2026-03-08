@@ -1245,6 +1245,7 @@ _toncenter_backoff_until: float | None = None
 
 
 async def _toncenter_get_transactions(address: str, limit: int = 20) -> list[dict]:
+    global _toncenter_backoff_until
     now_ts = asyncio.get_event_loop().time()
     cached = _toncenter_cache.get(address)
     if cached and now_ts - cached[0] < 10:
