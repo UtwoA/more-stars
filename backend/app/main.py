@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query, Header, HTTPException
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, root_validator
-from sqlalchemy import text, and_, or_
+from sqlalchemy import text, and_, or_, func, desc
 from zoneinfo import ZoneInfo
 
 from .crypto_pay import verify_signature
@@ -439,6 +439,25 @@ def _round_money(value: float | None) -> float | None:
     if value is None:
         return None
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _next_draw_dates(now: datetime) -> list[datetime]:
+    year = now.year
+    month = now.month
+    day = now.day
+
+    def _safe_date(y: int, m: int, d: int) -> datetime:
+        return datetime(y, m, d, 0, 0, 0, tzinfo=now.tzinfo)
+
+    if day <= 15:
+        return [_safe_date(year, month, 15), _safe_date(year, month, 30)]
+    if day <= 30:
+        next_month = month + 1 if month < 12 else 1
+        next_year = year if month < 12 else year + 1
+        return [_safe_date(year, month, 30), _safe_date(next_year, next_month, 15)]
+    next_month = month + 1 if month < 12 else 1
+    next_year = year if month < 12 else year + 1
+    return [_safe_date(next_year, next_month, 15), _safe_date(next_year, next_month, 30)]
 
 
 def _to_nano(ton_amount: float) -> int:
@@ -2487,6 +2506,80 @@ async def profile_summary(user_id: str = Query(...), request: Request = None):
             "invited_count": invited_count,
             "bonus_balance_stars": bonus["bonus_stars"],
             "bonus_expires_at": bonus["bonus_expires_at"]
+        }
+    finally:
+        db.close()
+
+
+@app.get("/raffle/summary")
+async def raffle_summary(user_id: str = Query(...)):
+    db = SessionLocal()
+    try:
+        totals = (
+            db.query(
+                Order.user_id.label("user_id"),
+                func.sum(Order.quantity).label("total")
+            )
+            .filter(Order.status == "paid", Order.product_type == "stars")
+            .group_by(Order.user_id)
+            .subquery()
+        )
+
+        top_rows = (
+            db.query(totals.c.user_id, totals.c.total)
+            .order_by(desc(totals.c.total))
+            .limit(10)
+            .all()
+        )
+
+        user_total = db.query(totals.c.total).filter(totals.c.user_id == user_id).scalar() or 0
+        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
+
+        rank = None
+        if user_total:
+            higher = db.query(func.count()).select_from(totals).filter(totals.c.total > user_total).scalar() or 0
+            rank = int(higher) + 1
+
+        ids = {row.user_id for row in top_rows}
+        if user_id:
+            ids.add(user_id)
+
+        user_map = {}
+        if ids:
+            users = db.query(User).filter(User.user_id.in_(list(ids))).all()
+            for u in users:
+                if u.username:
+                    user_map[u.user_id] = f"@{u.username}"
+                elif u.full_name:
+                    user_map[u.user_id] = u.full_name
+
+        top = []
+        for row in top_rows:
+            total = int(row.total or 0)
+            top.append({
+                "user_id": row.user_id,
+                "display": user_map.get(row.user_id),
+                "total_stars": total,
+            })
+
+        now = now_msk()
+        next_draws = [d.isoformat() for d in _next_draw_dates(now)]
+        chance_percent = 0.0
+        if total_all and user_total:
+            chance_percent = float(Decimal(str(user_total / total_all * 100)).quantize(Decimal("0.01")))
+
+        return {
+            "next_draws": next_draws,
+            "top": top,
+            "user": {
+                "user_id": user_id,
+                "display": user_map.get(user_id),
+                "total_stars": int(user_total or 0),
+                "rank": rank,
+                "chance_percent": chance_percent,
+            },
+            "total_participants": int(db.query(func.count()).select_from(totals).scalar() or 0),
+            "total_stars": int(total_all or 0),
         }
     finally:
         db.close()

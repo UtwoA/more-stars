@@ -94,6 +94,24 @@
     }
     .modal-card h3{margin:0 0 8px 0;font-size:16px;}
     .modal-card p{margin:8px 0;color:var(--muted);font-size:13px;line-height:1.45;}
+    .wheel-wrap{ position:relative; width:240px; height:240px; margin:0 auto; }
+    .wheel{
+      width:100%; height:100%; border-radius:50%;
+      background: conic-gradient(#2a8bf2 0 25%, #8b5cff 25% 50%, #24c6b2 50% 75%, #f0b429 75% 100%);
+      border:1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }
+    .wheel-center{
+      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+      background: var(--bg-2); border:1px solid rgba(255,255,255,0.08);
+      padding:10px 14px; border-radius:999px; font-weight:700; font-size:13px;
+    }
+    .raffle-line{
+      display:flex; justify-content:space-between; gap:8px;
+      padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);
+      font-size:13px;
+    }
+    .raffle-line:last-child{ border-bottom:0; }
 
     .popular {
       display:grid;
@@ -326,17 +344,31 @@
 <div id="app-content">
   <main class="container">
 
-    <section id="history" class="page">
+    <section id="raffle" class="page">
       <div class="page-content">
-        <div id="history-loader">
-          <div class="card skeleton" style="height:64px"></div>
-          <div class="card skeleton" style="height:64px"></div>
+        <div class="card">
+          <div style="font-weight:800;margin-bottom:6px" data-i18n="raffle_title">Розыгрыш</div>
+          <div style="color:var(--muted);font-size:13px" data-i18n="raffle_sub">
+            Каждые 15 и 30 числа месяца проходит розыгрыш среди покупателей звёзд.
+          </div>
+          <div id="raffle-dates" style="margin-top:8px;font-size:13px;"></div>
         </div>
-        <div id="history-empty" class="card" style="display:none;">
-          <div style="font-weight:700" data-i18n="last_purchases">Последние покупки</div>
-          <div style="margin-top:8px;color:var(--muted)" data-i18n="history_empty">Здесь будет история операций</div>
+        <div class="card" style="text-align:center;">
+          <div class="wheel-wrap">
+            <div id="raffle-wheel" class="wheel"></div>
+            <div class="wheel-center" data-i18n="raffle_wheel">Шансы</div>
+          </div>
         </div>
-        <div id="history-list"></div>
+        <div class="card" id="raffle-user-card">
+          <div style="font-weight:700;margin-bottom:6px" data-i18n="raffle_user">Ваш вклад</div>
+          <div class="value" id="raffle-user-line">—</div>
+          <div style="margin-top:6px;color:var(--muted);font-size:12px" id="raffle-user-chance">—</div>
+        </div>
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:8px" data-i18n="raffle_top">Топ-10 покупателей</div>
+          <div id="raffle-top"></div>
+          <div id="raffle-empty" style="margin-top:8px;color:var(--muted);font-size:12px;display:none;" data-i18n="raffle_empty">Пока нет данных</div>
+        </div>
       </div>
 
       <div class="auth-gate-inline" style="display:none;">
@@ -376,6 +408,18 @@
       <button id="ref-info-btn" class="btn secondary" style="margin-top:10px;" data-i18n="ref_details">Подробнее</button>
       <div style="margin-top:12px"><div class="label" data-i18n="invited">Приглашено</div><div class="value" id="ref-count">0</div></div>
       <div style="margin-top:12px"><div class="label" data-i18n="ref_balance">Баланс звёзд</div><div class="value" id="ref-balance">0</div></div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:800;margin-bottom:8px" data-i18n="last_purchases">Последние покупки</div>
+      <div id="history-loader">
+        <div class="card skeleton" style="height:64px"></div>
+        <div class="card skeleton" style="height:64px"></div>
+      </div>
+      <div id="history-empty" style="display:none;">
+        <div style="margin-top:8px;color:var(--muted)" data-i18n="history_empty">Здесь будет история операций</div>
+      </div>
+      <div id="history-list"></div>
     </div>
 
     <div class="card bonus-card" id="bonus-card">
@@ -598,7 +642,7 @@
   </main>
 
   <nav class="bottom-nav" role="navigation">
-  <div class="nav-slot"><div class="nav-item" data-page="history"><div class="ico">📜</div><div class="label" data-i18n="nav_history">History</div></div></div>
+  <div class="nav-slot"><div class="nav-item" data-page="raffle"><div class="ico">🎯</div><div class="label" data-i18n="nav_raffle">Raffle</div></div></div>
   <div class="nav-slot"><div class="nav-item active nav-center" data-page="shop"><div class="ico">🛒</div><div class="label" data-i18n="nav_shop">Shop</div></div></div>
   <div class="nav-slot"><div class="nav-item" data-page="profile"><div class="ico">👤</div><div class="label" data-i18n="nav_profile">Profile</div></div></div>
   </nav>
@@ -725,9 +769,15 @@ const translations = {
       ref_info_p5: "Мой баланс — все звёзды, начисленные за рефералов. Эти звёзды можно вывести.",
       ref_info_p6: "Вывод через поддержку, минимальная сумма — 300 звёзд.",
       ref_info_p7: "Пользователь закрепляется за тем, кто пригласил его первым.",
-      nav_history: "История",
+      nav_raffle: "Розыгрыш",
       nav_shop: "Магазин",
       nav_profile: "Профиль",
+      raffle_title: "Розыгрыш",
+      raffle_sub: "Каждые 15 и 30 числа месяца проходит розыгрыш среди покупателей звёзд.",
+      raffle_wheel: "Шансы",
+      raffle_user: "Ваш вклад",
+      raffle_top: "Топ-10 покупателей",
+      raffle_empty: "Пока нет данных",
       bonus_title: "Бонусные звёзды",
       bonus_chip: "Бонус",
       bonus_balance: "Бонусный баланс",
@@ -802,9 +852,15 @@ const translations = {
       ref_info_p5: "My balance is the total stars earned from referrals. You can withdraw these stars.",
       ref_info_p6: "Withdrawals are handled by support, minimum 300 stars.",
       ref_info_p7: "A user is tied to the first inviter.",
-      nav_history: "History",
+      nav_raffle: "Raffle",
       nav_shop: "Shop",
       nav_profile: "Profile",
+      raffle_title: "Raffle",
+      raffle_sub: "Every month on the 15th and 30th we draw among Stars buyers.",
+      raffle_wheel: "Chances",
+      raffle_user: "Your contribution",
+      raffle_top: "Top 10 buyers",
+      raffle_empty: "No data yet",
       bonus_title: "Bonus stars",
       bonus_chip: "Bonus",
       bonus_balance: "Bonus balance",
@@ -1418,11 +1474,12 @@ function switchPage(id,node){
   else{ const target=document.querySelector(`.nav-item[data-page="${id}"]`); if(target){ target.classList.add('active'); target.setAttribute('aria-pressed','true'); }}
   window.scrollTo({top:0,behavior:'smooth'});
 
-  if (id === "history") {
-    loadUserHistory();
-  }
   if (id === "profile") {
     loadProfileSummary();
+    loadUserHistory();
+  }
+  if (id === "raffle") {
+    loadRaffle();
   }
 }
 
@@ -1666,6 +1723,85 @@ async function loadProfileSummary(retries = 6) {
 }
 loadProfileSummary();
 
+async function loadRaffle(retries = 4) {
+  let userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  if (!userId) {
+    userId = (document.getElementById("user-id")?.textContent || "").trim();
+  }
+  if (!userId || userId === "—") {
+    if (retries > 0) setTimeout(() => loadRaffle(retries - 1), 800);
+    return;
+  }
+
+  const data = await fetchJsonWithAuth(`/raffle/summary?user_id=${userId}`, {headers: getAuthHeaders()});
+  if (!data) {
+    if (retries > 0) setTimeout(() => loadRaffle(retries - 1), 800);
+    return;
+  }
+
+  const datesEl = document.getElementById("raffle-dates");
+  if (datesEl) {
+    const dates = (data.next_draws || []).map(d => {
+      const dt = new Date(d);
+      return dt.toLocaleDateString(currentLang === "ru" ? "ru-RU" : "en-US", { day: "2-digit", month: "long" });
+    });
+    datesEl.textContent = dates.length
+      ? (currentLang === "ru" ? `Ближайшие даты: ${dates.join(" • ")}` : `Next draws: ${dates.join(" • ")}`)
+      : "";
+  }
+
+  const top = Array.isArray(data.top) ? data.top : [];
+  const totalTop = top.reduce((sum, item) => sum + (Number(item.total_stars) || 0), 0);
+  const wheel = document.getElementById("raffle-wheel");
+  if (wheel) {
+    const colors = ["#2a8bf2", "#8b5cff", "#24c6b2", "#f0b429", "#ef5a5a", "#6ed36b", "#f78bd4", "#5fb0ff", "#d1a84f", "#7e6dff"];
+    if (top.length === 0 || totalTop === 0) {
+      wheel.style.background = "conic-gradient(#2a8bf2 0 25%, #8b5cff 25% 50%, #24c6b2 50% 75%, #f0b429 75% 100%)";
+    } else {
+      let start = 0;
+      const segments = top.map((item, i) => {
+        const value = Number(item.total_stars) || 0;
+        const pct = (value / totalTop) * 100;
+        const end = start + pct;
+        const seg = `${colors[i % colors.length]} ${start}% ${end}%`;
+        start = end;
+        return seg;
+      });
+      if (start < 100) {
+        segments.push(`rgba(255,255,255,0.06) ${start}% 100%`);
+      }
+      wheel.style.background = `conic-gradient(${segments.join(", ")})`;
+    }
+  }
+
+  const topEl = document.getElementById("raffle-top");
+  const emptyEl = document.getElementById("raffle-empty");
+  if (topEl) topEl.innerHTML = "";
+  if (emptyEl) emptyEl.style.display = top.length ? "none" : "block";
+  top.forEach((item, idx) => {
+    const line = document.createElement("div");
+    line.className = "raffle-line";
+    const name = item.display ? item.display : `id ${item.user_id}`;
+    line.innerHTML = `<div>${idx + 1}. ${name}</div><div>${item.total_stars} ⭐</div>`;
+    topEl.appendChild(line);
+  });
+
+  const userLine = document.getElementById("raffle-user-line");
+  const userChance = document.getElementById("raffle-user-chance");
+  if (userLine) {
+    const u = data.user || {};
+    const name = u.display ? u.display : `id ${u.user_id || userId}`;
+    userLine.textContent = `${name} — ${u.total_stars || 0} ⭐`;
+  }
+  if (userChance) {
+    const u = data.user || {};
+    const chance = Number(u.chance_percent || 0).toFixed(2);
+    userChance.textContent = currentLang === "ru"
+      ? `Шанс на победу: ${chance}%`
+      : `Winning chance: ${chance}%`;
+  }
+}
+
 // Рендер Stars и Premium
 function renderGrid(gridId, packages){
   const grid = document.getElementById(gridId);
@@ -1844,7 +1980,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const isTelegram = !!window.Telegram?.WebApp?.initDataUnsafe?.user;
 
-  ['profile','history','payment-page'].forEach(id => {
+  ['profile','raffle','payment-page'].forEach(id => {
     const page = document.getElementById(id);
     if (!page) return;
 
