@@ -386,6 +386,9 @@
 
     <div class="card" style="text-align:center;">
       <div style="font-weight:800;margin-bottom:8px" data-i18n="contact_us">Связаться с нами</div>
+      <button id="contact-channel" class="btn secondary" style="margin-top: 12px;" data-i18n="channel">
+        Канал
+      </button>
       <button id="contact-support" class="btn" style="margin-top: 12px;" data-i18n="support">
         Поддержка
       </button>
@@ -683,6 +686,7 @@ const translations = {
       invited: "Приглашено",
       ref_balance: "Баланс звёзд",
       contact_us: "Связаться с нами",
+      channel: "Канал",
       support: "Поддержка",
       nav_history: "История",
       nav_shop: "Магазин",
@@ -750,6 +754,7 @@ const translations = {
       invited: "Invited",
       ref_balance: "Stars balance",
       contact_us: "Contact us",
+      channel: "Channel",
       support: "Support",
       nav_history: "History",
       nav_shop: "Shop",
@@ -1158,6 +1163,9 @@ document.getElementById("go-shop").addEventListener("click", () => {
 document.getElementById("contact-support").addEventListener("click", () => {
   // Можно открыть Telegram-чат с ботом или ссылку на поддержку
   window.open("https://t.me/more_stars_support", "_blank");
+});
+document.getElementById("contact-channel").addEventListener("click", () => {
+  window.open("https://t.me/more_stars_channel", "_blank");
 });
 
 // Promo code
