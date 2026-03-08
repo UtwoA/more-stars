@@ -125,19 +125,6 @@
       box-shadow: 0 8px 18px rgba(0,0,0,0.35);
       cursor:pointer;
     }
-    .wheel-labels{
-      position:absolute; inset:34px;
-      display:grid; grid-template-columns:1fr 1fr; gap:6px;
-      color:rgba(233,238,247,0.85); font-size:11px; line-height:1.1;
-      text-shadow: 0 2px 6px rgba(0,0,0,0.6);
-      pointer-events:none;
-    }
-    .wheel-labels .tag{
-      background: rgba(0,0,0,0.25);
-      border:1px solid rgba(255,255,255,0.08);
-      border-radius:10px; padding:4px 6px; text-align:center;
-      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    }
     .user-dot{
       width:10px; height:10px; border-radius:50%;
       display:inline-block; margin-right:6px; box-shadow:0 0 8px rgba(0,0,0,0.4);
@@ -414,7 +401,6 @@
           <div class="wheel-wrap">
             <div class="wheel-pointer"></div>
             <div id="raffle-wheel" class="wheel"></div>
-            <div id="raffle-labels" class="wheel-labels"></div>
             <div class="wheel-center" data-i18n="raffle_wheel">Шансы</div>
           </div>
         </div>
@@ -1946,22 +1932,6 @@ async function loadRaffle(retries = 4) {
   const emptyEl = document.getElementById("raffle-empty");
   if (topEl) topEl.innerHTML = "";
   if (emptyEl) emptyEl.style.display = top.length ? "none" : "block";
-  const labels = document.getElementById("raffle-labels");
-  if (labels) {
-    labels.innerHTML = "";
-    top.slice(0, 4).forEach((item, idx) => {
-      const tag = document.createElement("div");
-      tag.className = "tag";
-      const pct = Number(item.chance_percent || 0).toFixed(2);
-      tag.textContent = `${pct}%`;
-      if (String(item.user_id) === String(userId)) {
-        tag.style.borderColor = "#ffd166";
-        tag.style.color = "#ffd166";
-      }
-      labels.appendChild(tag);
-    });
-  }
-
   top.forEach((item, idx) => {
     const line = document.createElement("div");
     line.className = "raffle-line";
