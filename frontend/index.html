@@ -1940,10 +1940,21 @@ async function loadRaffle(retries = 4) {
   const totalTop = top.reduce((sum, item) => sum + (Number(item.total_stars) || 0), 0);
   const wheel = document.getElementById("raffle-wheel");
   let userColor = null;
+  const colors = ["#2a8bf2", "#00c2ff", "#7a5cff", "#ff7a59", "#ffc857", "#44d7b6", "#5e81f4", "#f45b69", "#7bd389", "#f4a259"];
+  const shade = (hex, amt) => {
+    const c = hex.replace("#", "");
+    const num = parseInt(c, 16);
+    let r = (num >> 16) + amt;
+    let g = ((num >> 8) & 0x00ff) + amt;
+    let b = (num & 0x0000ff) + amt;
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, "0")}`;
+  };
   if (wheel) {
-    const colors = ["#2a8bf2", "#8b5cff", "#24c6b2", "#f0b429", "#ef5a5a", "#6ed36b", "#f78bd4", "#5fb0ff", "#d1a84f", "#7e6dff"];
     if (top.length === 0 || totalTop === 0) {
-      wheel.style.background = "conic-gradient(#2a8bf2 0 25%, #8b5cff 25% 50%, #24c6b2 50% 75%, #f0b429 75% 100%)";
+      wheel.style.background = "conic-gradient(#2a8bf2 0 25%, #00c2ff 25% 50%, #7a5cff 50% 75%, #ffc857 75% 100%)";
     } else {
       let start = 0;
       const segments = top.map((item, i) => {
@@ -1955,7 +1966,8 @@ async function loadRaffle(retries = 4) {
           color = "#ffd166";
           userColor = color;
         }
-        const seg = `${color} ${start}% ${end}%`;
+        const mid = start + (pct * 0.55);
+        const seg = `${color} ${start}% ${mid}%, ${shade(color, -25)} ${mid}% ${end}%`;
         start = end;
         return seg;
       });

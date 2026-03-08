@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import random
 from decimal import Decimal, ROUND_HALF_UP
 import logging
 import os
@@ -2579,6 +2580,7 @@ async def raffle_summary(user_id: str = Query(...)):
             .limit(10)
             .all()
         )
+        all_rows = db.query(totals.c.user_id, totals.c.total).all()
 
         user_total = db.query(totals.c.total).filter(totals.c.user_id == user_id).scalar() or 0
         total_all = db.query(func.sum(totals.c.total)).scalar() or 0
@@ -2626,7 +2628,31 @@ async def raffle_summary(user_id: str = Query(...)):
             "image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
         }
 
-        winner = top[0] if top else None
+        winner = None
+        if is_draw_day and total_all and all_rows:
+            seed = f"raffle-{now.date().isoformat()}-{period_start.date().isoformat()}"
+            rng = random.Random(seed)
+            pick = rng.uniform(0, float(total_all))
+            acc = 0.0
+            for row in all_rows:
+                weight = float(row.total or 0)
+                acc += weight
+                if pick <= acc:
+                    winner = {
+                        "user_id": row.user_id,
+                        "display": user_map.get(row.user_id),
+                        "total_stars": int(row.total or 0),
+                        "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal(\"0.01\"))) if total_all else 0.0,
+                    }
+                    break
+            if winner is None:
+                row = all_rows[0]
+                winner = {
+                    "user_id": row.user_id,
+                    "display": user_map.get(row.user_id),
+                    "total_stars": int(row.total or 0),
+                    "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal(\"0.01\"))) if total_all else 0.0,
+                }
 
         return {
             "next_draws": next_draws,
