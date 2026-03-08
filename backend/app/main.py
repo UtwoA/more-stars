@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query, Header, HTTPException
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, root_validator
-from sqlalchemy import text
+from sqlalchemy import text, and_, or_
 from zoneinfo import ZoneInfo
 
 from .crypto_pay import verify_signature
@@ -714,11 +714,55 @@ async def _availability_loop() -> None:
         await _check_mini_app()
         await asyncio.sleep(30 * 60)
 
+_payment_sync_lock = asyncio.Lock()
+
+
+async def _sync_pending_orders() -> None:
+    async with _payment_sync_lock:
+        db = SessionLocal()
+        try:
+            orders = (
+                db.query(Order)
+                .filter(
+                    or_(
+                        Order.status == "created",
+                        and_(
+                            Order.status == "paid",
+                            or_(Order.fragment_status.is_(None), Order.fragment_status != "success"),
+                        ),
+                    )
+                )
+                .order_by(Order.timestamp.desc())
+                .limit(100)
+                .all()
+            )
+
+            for order in orders:
+                _check_order_expired(order, db)
+                if order.status == "created":
+                    await _sync_crypto_order_status(order, db)
+                    await _sync_platega_order_status(order, db)
+                    await _sync_tonconnect_order_status(order, db)
+                if order.status == "paid":
+                    await _fulfill_order_if_needed(order, db)
+        finally:
+            db.close()
+
+
+async def _payment_sync_loop() -> None:
+    while True:
+        try:
+            await _sync_pending_orders()
+        except Exception:
+            logger.exception("[SYNC] Failed to sync pending orders")
+        await asyncio.sleep(15)
+
 
 @app.on_event("startup")
 async def _startup_tasks():
     asyncio.create_task(_daily_report_loop())
     asyncio.create_task(_availability_loop())
+    asyncio.create_task(_payment_sync_loop())
     if ADMIN_CHAT_IDS:
         dp = build_admin_dispatcher(ADMIN_CHAT_IDS)
         asyncio.create_task(dp.start_polling(bot))
