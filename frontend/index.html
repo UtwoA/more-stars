@@ -1447,15 +1447,25 @@ function setUserFromTelegram(){
         const ref=document.getElementById('ref-link');
         uname.textContent=user.username?`@${user.username}`:(user.first_name||'User');
         uid.textContent=user.id||'';
-        const fullRef=`https://t.me/more_stars_bot?start=${user.id}`;
+        const refCode = `ref_${user.id}`;
+        const fullRef=`https://t.me/more_stars_bot/app?startapp=${refCode}`;
         ref.textContent=formatRefLink(fullRef);
         ref.title=fullRef;
-        ref.href=`https://t.me/more_stars_bot?start=${user.id}`;
+        ref.href=fullRef;
         // attach referral if present
         const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
         if (startParam) {
-          fetch(`/ref/attach?user_id=${user.id}&referrer_id=${encodeURIComponent(startParam)}`, {method: "POST", headers: getAuthHeaders()})
-            .catch(() => {});
+          let referrerId = null;
+          const match = String(startParam).match(/^ref_(\d+)$/);
+          if (match) {
+            referrerId = match[1];
+          } else if (/^\d+$/.test(String(startParam))) {
+            referrerId = String(startParam);
+          }
+          if (referrerId && referrerId !== String(user.id)) {
+            fetch(`/ref/attach?user_id=${user.id}&referrer_id=${encodeURIComponent(referrerId)}`, {method: "POST", headers: getAuthHeaders()})
+              .catch(() => {});
+          }
         }
 
         if(user.photo_url){
@@ -1478,7 +1488,7 @@ function setUserFromTelegram(){
       document.getElementById('user-username').textContent='@demo_user';
       document.getElementById('user-id').textContent='123456';
       const refEl=document.getElementById('ref-link');
-      const fullRef='https://t.me/more_stars_bot?start=123456';
+      const fullRef='https://t.me/more_stars_bot/app?startapp=ref_123456';
       refEl.textContent=formatRefLink(fullRef);
       refEl.title=fullRef;
       refEl.href=fullRef;
