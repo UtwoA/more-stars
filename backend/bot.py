@@ -1,4 +1,5 @@
 import os
+import asyncio
 from aiogram import Bot, types
 from aiogram import Dispatcher
 from aiogram.filters import Command
@@ -18,6 +19,9 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set")
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+
+
+_pending_broadcast: dict[str, str | None] = {}
 
 
 def build_admin_dispatcher(admin_chat_ids: set[str]):
@@ -205,6 +209,157 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
             f"MAX_USES: {max_uses}\n"
             f"Source: {source or 'n/a'}"
         )
+
+    @dp.message(Command("broadcast_wait"))
+    async def cmd_broadcast_wait(message: Message):
+        if str(message.from_user.id) not in admin_ids:
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        target_id = None
+        if len(parts) > 1:
+            target_id = parts[1].strip()
+            if not target_id.isdigit():
+                await message.answer("ID должен быть числом.")
+                return
+        _pending_broadcast[str(message.from_user.id)] = target_id
+        if target_id:
+            await message.answer(
+                f"Ок. Отправь сообщение для пользователя {target_id} "
+                f"(текст или фото/гиф + подпись)."
+            )
+        else:
+            await message.answer(
+                "Ок. Отправь сообщение для рассылки всем пользователям "
+                "(текст или фото/гиф + подпись)."
+            )
+
+    @dp.message(Command("broadcast"))
+    async def cmd_broadcast(message: Message):
+        if str(message.from_user.id) not in admin_ids:
+            return
+
+        target = message.reply_to_message
+        payload_text = None
+        photo_id = None
+        animation_id = None
+
+        if target:
+            if target.photo:
+                photo_id = target.photo[-1].file_id
+                payload_text = target.caption or ""
+            elif target.animation:
+                animation_id = target.animation.file_id
+                payload_text = target.caption or ""
+            else:
+                payload_text = target.text or target.caption or ""
+        else:
+            parts = (message.text or "").split(maxsplit=1)
+            if len(parts) > 1:
+                payload_text = parts[1].strip()
+
+        if not (payload_text or photo_id or animation_id):
+            await message.answer(
+                "Использование: /broadcast <текст>\n"
+                "Или ответьте командой /broadcast на сообщение с текстом/картинкой/гифкой."
+            )
+            return
+
+        db = SessionLocal()
+        try:
+            user_ids = [u.user_id for u in db.query(User.user_id).all()]
+        finally:
+            db.close()
+
+        if not user_ids:
+            await message.answer("Пользователей нет.")
+            return
+
+        sent = 0
+        failed = 0
+        for uid in user_ids:
+            try:
+                if photo_id:
+                    await bot.send_photo(chat_id=int(uid), photo=photo_id, caption=payload_text or None)
+                elif animation_id:
+                    await bot.send_animation(chat_id=int(uid), animation=animation_id, caption=payload_text or None)
+                else:
+                    await bot.send_message(chat_id=int(uid), text=payload_text)
+                sent += 1
+                await asyncio.sleep(0.03)
+            except Exception:
+                failed += 1
+                await asyncio.sleep(0.03)
+
+        await message.answer(f"Рассылка завершена. Успешно: {sent}, Ошибок: {failed}.")
+
+    @dp.message()
+    async def handle_pending_broadcast(message: Message):
+        admin_id = str(message.from_user.id)
+        if admin_id not in admin_ids:
+            return
+        if admin_id not in _pending_broadcast:
+            return
+        if (message.text or "").lstrip().startswith("/"):
+            return
+
+        target_id = _pending_broadcast.pop(admin_id, None)
+        payload_text = None
+        photo_id = None
+        animation_id = None
+
+        if message.photo:
+            photo_id = message.photo[-1].file_id
+            payload_text = message.caption or ""
+        elif message.animation:
+            animation_id = message.animation.file_id
+            payload_text = message.caption or ""
+        else:
+            payload_text = message.text or ""
+
+        if not (payload_text or photo_id or animation_id):
+            await message.answer("Пустое сообщение. Отменено.")
+            return
+
+        if target_id:
+            try:
+                if photo_id:
+                    await bot.send_photo(chat_id=int(target_id), photo=photo_id, caption=payload_text or None)
+                elif animation_id:
+                    await bot.send_animation(chat_id=int(target_id), animation=animation_id, caption=payload_text or None)
+                else:
+                    await bot.send_message(chat_id=int(target_id), text=payload_text)
+                await message.answer(f"Отправлено пользователю {target_id}.")
+            except Exception:
+                await message.answer(f"Не удалось отправить пользователю {target_id}.")
+            return
+
+        db = SessionLocal()
+        try:
+            user_ids = [u.user_id for u in db.query(User.user_id).all()]
+        finally:
+            db.close()
+
+        if not user_ids:
+            await message.answer("Пользователей нет.")
+            return
+
+        sent = 0
+        failed = 0
+        for uid in user_ids:
+            try:
+                if photo_id:
+                    await bot.send_photo(chat_id=int(uid), photo=photo_id, caption=payload_text or None)
+                elif animation_id:
+                    await bot.send_animation(chat_id=int(uid), animation=animation_id, caption=payload_text or None)
+                else:
+                    await bot.send_message(chat_id=int(uid), text=payload_text)
+                sent += 1
+                await asyncio.sleep(0.03)
+            except Exception:
+                failed += 1
+                await asyncio.sleep(0.03)
+
+        await message.answer(f"Рассылка завершена. Успешно: {sent}, Ошибок: {failed}.")
 
     return dp
 
