@@ -131,21 +131,41 @@
     }
     .wheel-slices::before{
       content:"";
-      position:absolute; inset:6px;
+      position:absolute; inset:4px;
       border-radius:50%;
-      background: conic-gradient(
-        transparent 0%,
-        transparent var(--user-start, 0%),
-        rgba(255,209,102,0.95) var(--user-start, 0%),
-        rgba(255,209,102,0.95) var(--user-end, 0%),
-        transparent var(--user-end, 0%),
-        transparent 100%
-      );
-      -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%);
-      mask: radial-gradient(circle, transparent 62%, #000 64%);
+      background:
+        conic-gradient(
+          transparent 0%,
+          transparent var(--user-start, 0%),
+          rgba(255,209,102,0.95) var(--user-start, 0%),
+          rgba(255,209,102,0.95) var(--user-end, 0%),
+          transparent var(--user-end, 0%),
+          transparent 100%
+        );
+      -webkit-mask: radial-gradient(circle, transparent 70%, #000 72%);
+      mask: radial-gradient(circle, transparent 70%, #000 72%);
       opacity:0;
       pointer-events:none;
-      transition: opacity 200ms ease;
+      transition: opacity 220ms ease;
+      filter: drop-shadow(0 0 10px rgba(255,209,102,0.35)) drop-shadow(0 0 18px rgba(255,209,102,0.25));
+    }
+    .wheel-slices::after{
+      content:"";
+      position:absolute; inset:10px;
+      border-radius:50%;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(255,255,255,0.18), rgba(0,0,0,0.12) 55%, rgba(0,0,0,0.45) 100%),
+        conic-gradient(
+          transparent 0%,
+          transparent var(--user-start, 0%),
+          rgba(255,255,255,0.15) var(--user-start, 0%),
+          rgba(255,255,255,0.15) var(--user-end, 0%),
+          transparent var(--user-end, 0%),
+          transparent 100%
+        );
+      mix-blend-mode: screen;
+      opacity:0.7;
+      pointer-events:none;
     }
     .wheel-slices.has-user::before{ opacity:1; }
     .wheel-noise{
