@@ -1239,18 +1239,55 @@ async def _sync_platega_order_status(order: Order, db) -> None:
         _release_bonus_reservation(order, db)
 
 
+_toncenter_cache: dict[str, tuple[float, list[dict]]] = {}
+_toncenter_lock = asyncio.Lock()
+_toncenter_backoff_until: float | None = None
+
+
 async def _toncenter_get_transactions(address: str, limit: int = 20) -> list[dict]:
+    now_ts = asyncio.get_event_loop().time()
+    cached = _toncenter_cache.get(address)
+    if cached and now_ts - cached[0] < 10:
+        return cached[1]
+
+    if _toncenter_backoff_until and now_ts < _toncenter_backoff_until:
+        return cached[1] if cached else []
+
     params = {
         "address": address,
         "limit": str(limit),
     }
     if TONCENTER_API_KEY:
         params["api_key"] = TONCENTER_API_KEY
-    async with httpx.AsyncClient() as client:
-        r = await client.get(f"{TONCENTER_BASE_URL}/api/v2/getTransactions", params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    return data.get("result") or []
+
+    async with _toncenter_lock:
+        now_ts = asyncio.get_event_loop().time()
+        cached = _toncenter_cache.get(address)
+        if cached and now_ts - cached[0] < 10:
+            return cached[1]
+        if _toncenter_backoff_until and now_ts < _toncenter_backoff_until:
+            return cached[1] if cached else []
+
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient() as client:
+                    r = await client.get(f"{TONCENTER_BASE_URL}/api/v2/getTransactions", params=params, timeout=15)
+                if r.status_code == 429:
+                    _toncenter_backoff_until = asyncio.get_event_loop().time() + (5 * (attempt + 1))
+                    await asyncio.sleep(0.2 * (attempt + 1))
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                result = data.get("result") or []
+                _toncenter_cache[address] = (asyncio.get_event_loop().time(), result)
+                return result
+            except httpx.HTTPStatusError as exc:
+                if exc.response is not None and exc.response.status_code == 429:
+                    _toncenter_backoff_until = asyncio.get_event_loop().time() + (5 * (attempt + 1))
+                    await asyncio.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+        return cached[1] if cached else []
 
 
 async def _sync_tonconnect_order_status(order: Order, db) -> None:
