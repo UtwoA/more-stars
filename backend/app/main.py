@@ -2642,7 +2642,7 @@ async def raffle_summary(user_id: str = Query(...)):
                         "user_id": row.user_id,
                         "display": user_map.get(row.user_id),
                         "total_stars": int(row.total or 0),
-                        "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal(\"0.01\"))) if total_all else 0.0,
+                        "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal("0.01"))) if total_all else 0.0,
                     }
                     break
             if winner is None:
@@ -2651,7 +2651,7 @@ async def raffle_summary(user_id: str = Query(...)):
                     "user_id": row.user_id,
                     "display": user_map.get(row.user_id),
                     "total_stars": int(row.total or 0),
-                    "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal(\"0.01\"))) if total_all else 0.0,
+                    "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal("0.01"))) if total_all else 0.0,
                 }
 
         return {
