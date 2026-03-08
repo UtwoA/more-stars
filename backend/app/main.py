@@ -363,8 +363,26 @@ def _extract_user_fields(init_data: str | None) -> tuple[str | None, str | None,
         return None, None, None
 
 
+def _extract_referrer_id(init_data: str | None) -> str | None:
+    if not init_data:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        start_param = (parsed.get("start_param") or "").strip()
+        if not start_param:
+            return None
+        if start_param.startswith("ref_"):
+            start_param = start_param.replace("ref_", "", 1)
+        if start_param.isdigit():
+            return start_param
+    except Exception:
+        return None
+    return None
+
+
 def _touch_user_from_initdata(db, user_id: str, init_data: str | None) -> str | None:
     username, full_name, display = _extract_user_fields(init_data)
+    referrer_id = _extract_referrer_id(init_data)
     if not username and not full_name:
         return display
     user = db.query(User).filter(User.user_id == user_id).first()
@@ -375,6 +393,8 @@ def _touch_user_from_initdata(db, user_id: str, init_data: str | None) -> str | 
         user.username = username
     if full_name:
         user.full_name = full_name
+    if referrer_id and referrer_id != user_id and not user.referrer_id:
+        user.referrer_id = referrer_id
     db.commit()
     return display
 
@@ -2454,9 +2474,11 @@ async def profile_summary(user_id: str = Query(...), request: Request = None):
         if init_data:
             _touch_user_from_initdata(db, user_id, init_data)
         bonus = _bonus_summary(db, user_id)
+        invited_count = db.query(User).filter(User.referrer_id == user_id).count()
         return {
             "referral_balance_stars": user.referral_balance_stars or 0,
             "referrer_id": user.referrer_id,
+            "invited_count": invited_count,
             "bonus_balance_stars": bonus["bonus_stars"],
             "bonus_expires_at": bonus["bonus_expires_at"]
         }

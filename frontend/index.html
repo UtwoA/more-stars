@@ -1642,6 +1642,8 @@ async function loadProfileSummary(retries = 6) {
   }
   const balance = document.getElementById("ref-balance");
   if (balance) balance.textContent = String(data.referral_balance_stars || 0);
+  const invited = document.getElementById("ref-count");
+  if (invited) invited.textContent = String(data.invited_count || 0);
 
   bonusBalance = Number(data.bonus_balance_stars || 0);
   bonusExpiresAt = data.bonus_expires_at || null;
