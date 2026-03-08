@@ -132,17 +132,14 @@
     .wheel-highlight{
       position:absolute; inset:0; border-radius:50%;
       opacity:0; pointer-events:none; transition: opacity 220ms ease;
-      background:
-        conic-gradient(
-          transparent 0%,
-          transparent var(--user-start, 0%),
-          rgba(255,255,255,0.95) var(--user-start, 0%),
-          rgba(255,255,255,0.95) var(--user-end, 0%),
-          transparent var(--user-end, 0%),
-          transparent 100%
-        );
-      -webkit-mask: radial-gradient(circle, transparent 68%, #000 70%);
-      mask: radial-gradient(circle, transparent 68%, #000 70%);
+      background: conic-gradient(
+        transparent 0deg,
+        transparent var(--user-start-deg, 0deg),
+        #ffffff var(--user-start-deg, 0deg) var(--user-end-deg, 0deg),
+        transparent var(--user-end-deg, 0deg) 360deg
+      );
+      -webkit-mask: radial-gradient(circle, transparent 69%, #000 70.5%);
+      mask: radial-gradient(circle, transparent 69%, #000 70.5%);
     }
     .wheel-slices.has-user .wheel-highlight{ opacity:1; }
     .wheel-slices::after{
@@ -2000,9 +1997,10 @@ async function loadRaffle(retries = 4) {
       wheel.style.background = `conic-gradient(${segments.join(", ")})`;
       if (userStart !== null && userEnd !== null) {
         if (wheel) {
-          wheel.style.setProperty("--user-start", `${userStart}%`);
-          wheel.style.setProperty("--user-end", `${userEnd}%`);
-          wheel.style.setProperty("--user-accent", "#5ee6ff");
+          const startDeg = userStart * 3.6;
+          const endDeg = userEnd * 3.6;
+          wheel.style.setProperty("--user-start-deg", `${startDeg}deg`);
+          wheel.style.setProperty("--user-end-deg", `${endDeg}deg`);
           wheel.classList.add("has-user");
         }
       } else {
