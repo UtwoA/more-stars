@@ -138,12 +138,37 @@
       border-radius:10px; padding:4px 6px; text-align:center;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
     }
+    .user-dot{
+      width:10px; height:10px; border-radius:50%;
+      display:inline-block; margin-right:6px; box-shadow:0 0 8px rgba(0,0,0,0.4);
+    }
     .raffle-line{
       display:flex; justify-content:space-between; gap:8px;
       padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);
       font-size:13px;
     }
     .raffle-line:last-child{ border-bottom:0; }
+    .history-modal-list{
+      max-height: 360px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+    .history-item{
+      padding:10px;
+      border-radius:12px;
+      background: rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.05);
+      margin-bottom:8px;
+      font-size:12px;
+    }
+    .history-filter{
+      display:flex; gap:8px; margin:8px 0 12px 0;
+    }
+    .history-filter input{
+      flex:1; background:#0e1116; color:var(--text);
+      border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:8px 10px;
+      font-size:12px;
+    }
 
     .popular {
       display:grid;
@@ -522,7 +547,11 @@
 <div id="history-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
   <div class="modal-card">
     <h3 id="history-modal-title" data-i18n="last_purchases">Последние покупки</h3>
-    <div id="history-modal-list"></div>
+    <div class="history-filter">
+      <input id="history-from" type="date" />
+      <input id="history-to" type="date" />
+    </div>
+    <div id="history-modal-list" class="history-modal-list"></div>
     <div id="history-modal-empty" style="margin-top:8px;color:var(--muted);font-size:12px;display:none;" data-i18n="history_empty">Здесь будет история операций</div>
     <button id="history-modal-close" class="btn secondary" style="margin-top:12px;" data-i18n="close">Закрыть</button>
   </div>
@@ -1357,11 +1386,34 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") rafflePrizeModal.classList.remove("open");
 });
 const historyModal = document.getElementById("history-modal");
+const historyFrom = document.getElementById("history-from");
+const historyTo = document.getElementById("history-to");
+function applyHistoryFilter() {
+  if (!historyCache || historyCache.length === 0) {
+    renderHistoryItems([], "history-modal-list", "history-modal-empty", true);
+    return;
+  }
+  const fromVal = historyFrom?.value ? new Date(historyFrom.value) : null;
+  const toVal = historyTo?.value ? new Date(historyTo.value) : null;
+  const filtered = historyCache.filter(item => {
+    const ts = new Date(item.timestamp);
+    if (fromVal && ts < fromVal) return false;
+    if (toVal) {
+      const end = new Date(toVal);
+      end.setHours(23, 59, 59, 999);
+      if (ts > end) return false;
+    }
+    return true;
+  });
+  renderHistoryItems(filtered, "history-modal-list", "history-modal-empty", true);
+}
 document.getElementById("history-more").addEventListener("click", () => {
   const userId = getNumericUserId();
   if (!userId) return;
   historyModal.classList.add("open");
-  loadHistory(userId, 100, "history-modal-list", "history-modal-empty", null);
+  if (historyFrom) historyFrom.value = "";
+  if (historyTo) historyTo.value = "";
+  loadHistory(userId, 200, "history-modal-list", "history-modal-empty", null, true);
 });
 document.getElementById("history-modal-close").addEventListener("click", () => {
   historyModal.classList.remove("open");
@@ -1372,6 +1424,8 @@ historyModal.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") historyModal.classList.remove("open");
 });
+if (historyFrom) historyFrom.addEventListener("change", applyHistoryFilter);
+if (historyTo) historyTo.addEventListener("change", applyHistoryFilter);
 
 // Promo code
 document.getElementById("promo-apply").addEventListener("click", async () => {
@@ -1701,7 +1755,36 @@ function formatOrderProduct(order) {
   return order.product_type || "Unknown";
 }
 
-async function loadHistory(userId, limit = 10, targetListId = "history-list", targetEmptyId = "history-empty", targetLoaderId = "history-loader") {
+let historyCache = [];
+
+function renderHistoryItems(orders, targetListId, targetEmptyId, compact = false) {
+  const empty = document.getElementById(targetEmptyId);
+  const list = document.getElementById(targetListId);
+  if (list) list.innerHTML = "";
+  if (!orders || orders.length === 0) {
+    if (empty) empty.style.display = "block";
+    return;
+  }
+  if (empty) empty.style.display = "none";
+  orders.forEach(order => {
+    const card = document.createElement("div");
+    card.className = compact ? "history-item" : "card";
+    card.style.marginBottom = compact ? "6px" : "8px";
+
+    let color = "gray";
+    if(order.status === "paid") color = "green";
+    else if(order.status === "failed") color = "red";
+
+    card.innerHTML = `
+      <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
+      <div style="font-size:12px;color:var(--muted);">Кому: ${order.recipient || "self"}</div>
+      <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}</div>
+    `;
+    if (list) list.appendChild(card);
+  });
+}
+
+async function loadHistory(userId, limit = 10, targetListId = "history-list", targetEmptyId = "history-empty", targetLoaderId = "history-loader", compact = false) {
   const loader = targetLoaderId ? document.getElementById(targetLoaderId) : null;
   const empty = document.getElementById(targetEmptyId);
   const list = document.getElementById(targetListId);
@@ -1720,26 +1803,11 @@ async function loadHistory(userId, limit = 10, targetListId = "history-list", ta
 
     if (loader) loader.style.display = "none";
 
-    if (data.orders && data.orders.length > 0) {
-      data.orders.forEach(order => {
-        const card = document.createElement("div");
-        card.className = "card";
-        card.style.marginBottom = "8px";
-
-        // Цвет статуса
-        let color = "gray";
-        if(order.status === "paid") color = "green";
-        else if(order.status === "failed") color = "red";
-
-        card.innerHTML = `
-          <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
-          <div style="font-size:12px;color:var(--muted);">Кому: ${order.recipient || "self"}</div>
-          <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}</div>
-        `;
-        if (list) list.appendChild(card);
-      });
+    if (targetListId === "history-modal-list") {
+      historyCache = data.orders || [];
+      renderHistoryItems(historyCache, targetListId, targetEmptyId, true);
     } else {
-      if (empty) empty.style.display = "block";
+      renderHistoryItems(data.orders || [], targetListId, targetEmptyId, compact);
     }
   } catch (err) {
     if (loader) loader.style.display = "none";
@@ -1847,6 +1915,7 @@ async function loadRaffle(retries = 4) {
   const top = Array.isArray(data.top) ? data.top : [];
   const totalTop = top.reduce((sum, item) => sum + (Number(item.total_stars) || 0), 0);
   const wheel = document.getElementById("raffle-wheel");
+  let userColor = null;
   if (wheel) {
     const colors = ["#2a8bf2", "#8b5cff", "#24c6b2", "#f0b429", "#ef5a5a", "#6ed36b", "#f78bd4", "#5fb0ff", "#d1a84f", "#7e6dff"];
     if (top.length === 0 || totalTop === 0) {
@@ -1857,7 +1926,12 @@ async function loadRaffle(retries = 4) {
         const value = Number(item.total_stars) || 0;
         const pct = (value / totalTop) * 100;
         const end = start + pct;
-        const seg = `${colors[i % colors.length]} ${start}% ${end}%`;
+        let color = colors[i % colors.length];
+        if (String(item.user_id) === String(userId)) {
+          color = "#ffd166";
+          userColor = color;
+        }
+        const seg = `${color} ${start}% ${end}%`;
         start = end;
         return seg;
       });
@@ -1878,9 +1952,12 @@ async function loadRaffle(retries = 4) {
     top.slice(0, 4).forEach((item, idx) => {
       const tag = document.createElement("div");
       tag.className = "tag";
-      const name = item.display ? item.display : `id ${item.user_id}`;
       const pct = Number(item.chance_percent || 0).toFixed(2);
-      tag.textContent = `${name} • ${pct}%`;
+      tag.textContent = `${pct}%`;
+      if (String(item.user_id) === String(userId)) {
+        tag.style.borderColor = "#ffd166";
+        tag.style.color = "#ffd166";
+      }
       labels.appendChild(tag);
     });
   }
@@ -1899,7 +1976,8 @@ async function loadRaffle(retries = 4) {
   if (userLine) {
     const u = data.user || {};
     const name = u.display ? u.display : `id ${u.user_id || userId}`;
-    userLine.textContent = `${name} — ${u.total_stars || 0} ⭐`;
+    const dot = userColor ? `<span class="user-dot" style="background:${userColor}"></span>` : "";
+    userLine.innerHTML = `${dot}${name} — ${u.total_stars || 0} ⭐`;
   }
   if (userChance) {
     const u = data.user || {};
