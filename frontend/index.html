@@ -129,26 +129,40 @@
       opacity:0.7;
       pointer-events:none;
     }
-    .wheel-slices::before{
-      content:"";
-      position:absolute; inset:4px;
-      border-radius:50%;
+    .wheel-highlight{
+      position:absolute; inset:6px; border-radius:50%;
+      opacity:0; pointer-events:none; transition: opacity 220ms ease;
       background:
         conic-gradient(
           transparent 0%,
           transparent var(--user-start, 0%),
-          rgba(255,209,102,0.95) var(--user-start, 0%),
-          rgba(255,209,102,0.95) var(--user-end, 0%),
+          var(--user-accent, #5ee6ff) var(--user-start, 0%),
+          var(--user-accent, #5ee6ff) var(--user-end, 0%),
           transparent var(--user-end, 0%),
           transparent 100%
         );
-      -webkit-mask: radial-gradient(circle, transparent 70%, #000 72%);
-      mask: radial-gradient(circle, transparent 70%, #000 72%);
-      opacity:0;
-      pointer-events:none;
-      transition: opacity 220ms ease;
-      filter: drop-shadow(0 0 10px rgba(255,209,102,0.35)) drop-shadow(0 0 18px rgba(255,209,102,0.25));
     }
+    .wheel-highlight.outer{
+      -webkit-mask: radial-gradient(circle, transparent 67%, #000 69%);
+      mask: radial-gradient(circle, transparent 67%, #000 69%);
+      filter: drop-shadow(0 0 12px rgba(94,230,255,0.4)) drop-shadow(0 0 22px rgba(94,230,255,0.25));
+      opacity:0;
+    }
+    .wheel-highlight.inner{
+      -webkit-mask: radial-gradient(circle, transparent 72%, #000 74%);
+      mask: radial-gradient(circle, transparent 72%, #000 74%);
+      background:
+        conic-gradient(
+          transparent 0%,
+          transparent var(--user-start, 0%),
+          rgba(255,255,255,0.9) var(--user-start, 0%),
+          rgba(255,255,255,0.9) var(--user-end, 0%),
+          transparent var(--user-end, 0%),
+          transparent 100%
+        );
+      opacity:0;
+    }
+    .wheel-shell.has-user .wheel-highlight{ opacity:1; }
     .wheel-slices::after{
       content:"";
       position:absolute; inset:10px;
@@ -472,8 +486,10 @@
         <div class="card" style="text-align:center;">
           <div class="wheel-wrap">
             <div class="wheel-pointer"></div>
-            <div class="wheel-shell">
+            <div id="wheel-shell" class="wheel-shell">
               <div id="raffle-wheel" class="wheel-slices"></div>
+              <div class="wheel-highlight outer"></div>
+              <div class="wheel-highlight inner"></div>
               <div class="wheel-noise"></div>
               <div class="wheel-rim"></div>
             </div>
@@ -1437,6 +1453,12 @@ const rafflePrizeModal = document.getElementById("raffle-prize-modal");
 const raffleWheelCenter = document.querySelector(".wheel-center");
 if (raffleWheelCenter) {
   raffleWheelCenter.addEventListener("click", () => {
+    const prizeLink = document.getElementById("raffle-prize-link");
+    const url = prizeLink?.getAttribute("href") || "";
+    if (url) {
+      window.open(url, "_blank");
+      return;
+    }
     rafflePrizeModal.classList.add("open");
   });
 }
@@ -1980,7 +2002,7 @@ async function loadRaffle(retries = 4) {
   const totalTop = top.reduce((sum, item) => sum + (Number(item.total_stars) || 0), 0);
   const wheel = document.getElementById("raffle-wheel");
   let userColor = null;
-  const colors = ["#2a8bf2", "#00c2ff", "#7a5cff", "#ff7a59", "#ffc857", "#44d7b6", "#5e81f4", "#f45b69", "#7bd389", "#f4a259"];
+  const colors = ["#2f5d8a", "#3d5afe", "#2a9d8f", "#1b7f79", "#6a4c93", "#b76e79", "#c9a227", "#4a5568", "#5a3e8c", "#4c7da6"];
   const shade = (hex, amt) => {
     const c = hex.replace("#", "");
     const num = parseInt(c, 16);
@@ -1992,10 +2014,11 @@ async function loadRaffle(retries = 4) {
     b = Math.max(0, Math.min(255, b));
     return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, "0")}`;
   };
+  const wheelShell = document.getElementById("wheel-shell");
   if (wheel) {
     if (top.length === 0 || totalTop === 0) {
-      wheel.style.background = "conic-gradient(#2a8bf2 0 25%, #00c2ff 25% 50%, #7a5cff 50% 75%, #ffc857 75% 100%)";
-      wheel.classList.remove("has-user");
+      wheel.style.background = "conic-gradient(#2f5d8a 0 25%, #3d5afe 25% 50%, #2a9d8f 50% 75%, #c9a227 75% 100%)";
+      if (wheelShell) wheelShell.classList.remove("has-user");
     } else {
       let start = 0;
       let userStart = null;
@@ -2006,7 +2029,7 @@ async function loadRaffle(retries = 4) {
         const end = start + pct;
         let color = colors[i % colors.length];
         if (String(item.user_id) === String(userId)) {
-          color = "#ffd166";
+          color = "#5ee6ff";
           userColor = color;
           userStart = start;
           userEnd = end;
@@ -2021,11 +2044,14 @@ async function loadRaffle(retries = 4) {
       }
       wheel.style.background = `conic-gradient(${segments.join(", ")})`;
       if (userStart !== null && userEnd !== null) {
-        wheel.style.setProperty("--user-start", `${userStart}%`);
-        wheel.style.setProperty("--user-end", `${userEnd}%`);
-        wheel.classList.add("has-user");
+        if (wheelShell) {
+          wheelShell.style.setProperty("--user-start", `${userStart}%`);
+          wheelShell.style.setProperty("--user-end", `${userEnd}%`);
+          wheelShell.style.setProperty("--user-accent", "#5ee6ff");
+          wheelShell.classList.add("has-user");
+        }
       } else {
-        wheel.classList.remove("has-user");
+        if (wheelShell) wheelShell.classList.remove("has-user");
       }
     }
   }
