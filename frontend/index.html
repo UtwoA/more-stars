@@ -619,6 +619,7 @@
 <div id="history-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
   <div class="modal-card">
     <h3 id="history-modal-title" data-i18n="last_purchases">Последние покупки</h3>
+    <div id="history-modal-loading" style="margin-top:6px;color:var(--muted);font-size:12px;display:none;" data-i18n="history_loading">Загрузка...</div>
     <div id="history-modal-list" class="history-modal-list"></div>
     <div id="history-modal-empty" style="margin-top:8px;color:var(--muted);font-size:12px;display:none;" data-i18n="history_empty">Здесь будет история операций</div>
     <button id="history-modal-close" class="btn secondary" style="margin-top:12px;" data-i18n="close">Закрыть</button>
@@ -921,6 +922,7 @@ const translations = {
       ref_info_p5: "Мой баланс — все звёзды, начисленные за рефералов. Эти звёзды можно вывести.",
       ref_info_p6: "Вывод через поддержку, минимальная сумма — 300 звёзд.",
       ref_info_p7: "Пользователь закрепляется за тем, кто пригласил его первым.",
+      history_loading: "Загрузка...",
       history_more: "Показать все",
       nav_raffle: "Розыгрыш",
       nav_shop: "Магазин",
@@ -1006,6 +1008,7 @@ const translations = {
       ref_info_p5: "My balance is the total stars earned from referrals. You can withdraw these stars.",
       ref_info_p6: "Withdrawals are handled by support, minimum 300 stars.",
       ref_info_p7: "A user is tied to the first inviter.",
+      history_loading: "Loading...",
       history_more: "Show all",
       nav_raffle: "Raffle",
       nav_shop: "Shop",
@@ -1838,8 +1841,12 @@ async function loadHistory(userId, limit = 10, targetListId = "history-list", ta
   const loader = targetLoaderId ? document.getElementById(targetLoaderId) : null;
   const empty = document.getElementById(targetEmptyId);
   const list = document.getElementById(targetListId);
+  const modalLoading = targetListId === "history-modal-list"
+    ? document.getElementById("history-modal-loading")
+    : null;
 
   if (loader) loader.style.display = "block";
+  if (modalLoading) modalLoading.style.display = "block";
   if (empty) empty.style.display = "none";
   if (list) list.innerHTML = "";
 
@@ -1847,11 +1854,13 @@ async function loadHistory(userId, limit = 10, targetListId = "history-list", ta
     const data = await fetchJsonWithAuth(`/orders/history?user_id=${userId}&limit=${limit}`, {headers: getAuthHeaders()});
     if (!data) {
       if (loader) loader.style.display = "none";
+      if (modalLoading) modalLoading.style.display = "none";
       if (empty) empty.style.display = "block";
       return;
     }
 
     if (loader) loader.style.display = "none";
+    if (modalLoading) modalLoading.style.display = "none";
 
     if (targetListId === "history-modal-list") {
       historyCache = data.orders || [];
@@ -1861,6 +1870,7 @@ async function loadHistory(userId, limit = 10, targetListId = "history-list", ta
     }
   } catch (err) {
     if (loader) loader.style.display = "none";
+    if (modalLoading) modalLoading.style.display = "none";
     if (empty) empty.style.display = "block";
     console.error("Ошибка загрузки истории:", err);
   }
