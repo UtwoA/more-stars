@@ -36,9 +36,11 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
             await _claim_bonus(message, token)
             return
         link = "https://t.me/more_stars_bot/app?startapp=1"
+        channel = "https://t.me/more_stars_channel"
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Открыть приложение", url=link)]
+                [InlineKeyboardButton(text="Открыть приложение", url=link)],
+                [InlineKeyboardButton(text="Канал More Stars", url=channel)]
             ]
         )
         await message.answer(
