@@ -136,29 +136,13 @@
         conic-gradient(
           transparent 0%,
           transparent var(--user-start, 0%),
-          var(--user-accent, #5ee6ff) var(--user-start, 0%),
-          var(--user-accent, #5ee6ff) var(--user-end, 0%),
-          transparent var(--user-end, 0%),
-          transparent 100%
-        );
-    }
-    .wheel-highlight.outer{
-      -webkit-mask: radial-gradient(circle, transparent 62%, #000 66%);
-      mask: radial-gradient(circle, transparent 62%, #000 66%);
-      filter: drop-shadow(0 0 14px rgba(94,230,255,0.45)) drop-shadow(0 0 26px rgba(94,230,255,0.25));
-    }
-    .wheel-highlight.inner{
-      -webkit-mask: radial-gradient(circle, transparent 70%, #000 72%);
-      mask: radial-gradient(circle, transparent 70%, #000 72%);
-      background:
-        conic-gradient(
-          transparent 0%,
-          transparent var(--user-start, 0%),
           rgba(255,255,255,0.95) var(--user-start, 0%),
           rgba(255,255,255,0.95) var(--user-end, 0%),
           transparent var(--user-end, 0%),
           transparent 100%
         );
+      -webkit-mask: radial-gradient(circle, transparent 68%, #000 70%);
+      mask: radial-gradient(circle, transparent 68%, #000 70%);
     }
     .wheel-slices.has-user .wheel-highlight{ opacity:1; }
     .wheel-slices::after{
@@ -478,8 +462,7 @@
             <div class="wheel-pointer"></div>
             <div id="wheel-shell" class="wheel-shell">
               <div id="raffle-wheel" class="wheel-slices">
-                <div class="wheel-highlight outer"></div>
-                <div class="wheel-highlight inner"></div>
+                <div class="wheel-highlight"></div>
               </div>
               <div class="wheel-noise"></div>
               <div class="wheel-rim"></div>
