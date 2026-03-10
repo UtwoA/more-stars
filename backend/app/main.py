@@ -1981,69 +1981,21 @@ def _admin_panel_html(authed: bool) -> str:
   </div>
   </div>
   <script>
-    const navRoot = document.querySelector('.nav');
-    if (navRoot) {
-      function setPage(page){
-        const links = document.querySelectorAll('.nav a');
-        links.forEach(a => {
-          if (a.dataset.page === page) a.classList.add('active');
-          else a.classList.remove('active');
-        });
-        document.querySelectorAll('.card[data-page]').forEach(card => {
-          if (card.dataset.page === page) card.classList.add('active');
-          else card.classList.remove('active');
-        });
-        if (page === 'dashboard') { loadToday(); loadRecent(); }
-        if (page === 'analytics') { loadAnalytics(); loadAnalyticsDaily(); }
-        if (page === 'users') { loadUserSearch(); }
-        if (page === 'promos') { loadPromos(); }
-        if (page === 'bonuses') { loadBonuses(); }
-        if (page === 'raffle') { loadRaffleSummary(); }
-        if (page === 'settings') { loadSettings(); }
-      }
-      navRoot.addEventListener('click', (e) => {
-        const link = e.target.closest('a[data-page]');
-        if (!link) return;
-        e.preventDefault();
-        const page = link.dataset.page;
-        if (!page) return;
-        history.replaceState(null, '', `#${page}`);
-        setPage(page);
-      });
-      const initialPage = (location.hash || '#dashboard').replace('#','');
-      setPage(initialPage);
-      window.addEventListener('hashchange', () => {
-        const page = (location.hash || '#dashboard').replace('#','');
-        setPage(page);
-      });
+    async function requestCode(){
+      const res = await fetch('/admin/otp/request', {method:'POST', credentials:'include'});
+      document.getElementById('status').textContent = res.ok ? 'Code sent' : 'Failed to send';
     }
-
-    function renderLineChart(containerId, points, color){
-      const el = document.getElementById(containerId);
-      if (!el) return;
-      if (!points || points.length === 0) {
-        el.innerHTML = '<div class="muted">Нет данных</div>';
-        return;
-      }
-      const w = 600, h = 180, pad = 20;
-      const vals = points.map(p => p.y);
-      const max = Math.max(...vals, 1);
-      const min = Math.min(...vals, 0);
-      const span = max - min || 1;
-      const step = (w - pad * 2) / Math.max(1, points.length - 1);
-      let d = '';
-      points.forEach((p, i) => {
-        const x = pad + i * step;
-        const y = h - pad - ((p.y - min) / span) * (h - pad * 2);
-        d += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
+    async function verifyCode(){
+      const code = document.getElementById('code').value.trim();
+      if(!code) return;
+      const res = await fetch('/admin/otp/verify', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({code}),
+        credentials:'include'
       });
-      const area = `${d} L ${pad + (points.length - 1) * step} ${h - pad} L ${pad} ${h - pad} Z`;
-      el.innerHTML = `
-        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-          <path d="${area}" fill="${color}22"></path>
-          <path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
-        </svg>
-      `;
+      if(res.ok){ location.reload(); return; }
+      document.getElementById('status').textContent = 'Invalid code';
     }
     async function requestCode(){
       const res = await fetch('/admin/otp/request', {method:'POST', credentials:'include'});
@@ -2446,6 +2398,71 @@ def _admin_panel_html(authed: bool) -> str:
     </main>
   </div>
   <script>
+    function setPage(page){
+      const links = document.querySelectorAll('.nav a');
+      links.forEach(a => {
+        if (a.dataset.page === page) a.classList.add('active');
+        else a.classList.remove('active');
+      });
+      document.querySelectorAll('.card[data-page]').forEach(card => {
+        if (card.dataset.page === page) card.classList.add('active');
+        else card.classList.remove('active');
+      });
+      if (page === 'dashboard') { loadToday(); loadRecent(); }
+      if (page === 'analytics') { loadAnalytics(); loadAnalyticsDaily(); }
+      if (page === 'users') { loadUserSearch(); }
+      if (page === 'promos') { loadPromos(); }
+      if (page === 'bonuses') { loadBonuses(); }
+      if (page === 'raffle') { loadRaffleSummary(); }
+      if (page === 'settings') { loadSettings(); }
+    }
+    const navRoot = document.querySelector('.nav');
+    if (navRoot) {
+      navRoot.addEventListener('click', (e) => {
+        const link = e.target.closest('a[data-page]');
+        if (!link) return;
+        e.preventDefault();
+        const page = link.dataset.page;
+        if (!page) return;
+        history.replaceState(null, '', `#${page}`);
+        setPage(page);
+      });
+      const initialPage = (location.hash || '#dashboard').replace('#','');
+      setPage(initialPage);
+      window.addEventListener('hashchange', () => {
+        const page = (location.hash || '#dashboard').replace('#','');
+        setPage(page);
+      });
+    }
+
+    function renderLineChart(containerId, points, color){
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      if (!points || points.length === 0) {
+        el.innerHTML = '<div class="muted">Нет данных</div>';
+        return;
+      }
+      const w = 600, h = 180, pad = 20;
+      const vals = points.map(p => p.y);
+      const max = Math.max(...vals, 1);
+      const min = Math.min(...vals, 0);
+      const span = max - min || 1;
+      const step = (w - pad * 2) / Math.max(1, points.length - 1);
+      let d = '';
+      points.forEach((p, i) => {
+        const x = pad + i * step;
+        const y = h - pad - ((p.y - min) / span) * (h - pad * 2);
+        d += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
+      });
+      const area = `${d} L ${pad + (points.length - 1) * step} ${h - pad} L ${pad} ${h - pad} Z`;
+      el.innerHTML = `
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <path d="${area}" fill="${color}22"></path>
+          <path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      `;
+    }
+
     async function loadToday(){
       const res = await fetch('/admin/audit/today', {credentials:'include'});
       const data = await res.json();
