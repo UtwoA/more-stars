@@ -8,7 +8,7 @@ import logging
 import os
 import secrets
 import uuid
-from datetime import timedelta, datetime, time
+from datetime import timedelta, datetime, time, timezone
 from urllib.parse import parse_qsl, unquote_plus
 
 import httpx
@@ -113,6 +113,18 @@ with engine.begin() as conn:
                 amount FLOAT,
                 currency VARCHAR,
                 raw_response TEXT,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS app_events (
+                id SERIAL PRIMARY KEY,
+                event_type VARCHAR NOT NULL,
+                user_id VARCHAR,
                 created_at TIMESTAMPTZ DEFAULT now()
             )
             """
@@ -365,6 +377,21 @@ def _extract_user_fields(init_data: str | None) -> tuple[str | None, str | None,
         return None, None, None
 
 
+def _extract_user_id(init_data: str | None) -> str | None:
+    if not init_data:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
+        user_raw = parsed.get("user")
+        if not user_raw:
+            return None
+        user = json.loads(unquote_plus(user_raw))
+        uid = user.get("id")
+        return str(uid) if uid is not None else None
+    except Exception:
+        return None
+
+
 def _extract_referrer_id(init_data: str | None) -> str | None:
     if not init_data:
         return None
@@ -485,6 +512,18 @@ def _raffle_period(now: datetime) -> tuple[datetime, datetime]:
         next_month = month + 1 if month < 12 else 1
         next_year = year if month < 12 else year + 1
         end = datetime(next_year, next_month, 1, 0, 0, 0, tzinfo=now.tzinfo)
+    db = SessionLocal()
+    try:
+        reset = db.query(AdminSetting).filter(AdminSetting.key == "RAFFLE_RESET_AT").first()
+        if reset and reset.value:
+            try:
+                reset_dt = datetime.fromisoformat(reset.value)
+                if reset_dt > start and reset_dt < end:
+                    start = reset_dt
+            except Exception:
+                pass
+    finally:
+        db.close()
     return start, end
 
 
@@ -1998,6 +2037,69 @@ def _admin_panel_html(authed: bool) -> str:
       <div class="muted">Latest 200 paid stars orders.</div>
     </div>
     <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Analytics</strong>
+        <button class="btn" onclick="loadAnalytics()">Refresh</button>
+      </div>
+      <pre id="analytics">Loading...</pre>
+      <div class="muted">Last 30 days summary.</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Promocodes</strong>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn" onclick="loadPromos()">All</button>
+          <button class="btn" onclick="loadPromos('active')">Active</button>
+          <button class="btn" onclick="loadPromos('expired')">Expired</button>
+          <button class="btn" onclick="loadPromos('used')">Used</button>
+        </div>
+      </div>
+      <pre id="promo-list">Loading...</pre>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Bonuses</strong>
+        <button class="btn" onclick="loadBonuses()">Refresh</button>
+      </div>
+      <pre id="bonus-list">Loading...</pre>
+    </div>
+    <div class="card">
+      <strong>Bulk bonus grant</strong>
+      <div class="field">
+        <label class="muted">User IDs (comma / space / newline separated)</label>
+        <textarea class="input" id="bonus_bulk_ids" rows="4" placeholder="12345, 67890"></textarea>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Stars</label>
+          <input class="input" id="bonus_bulk_stars" type="number" min="1"/>
+        </div>
+        <div class="field">
+          <label class="muted">TTL (minutes)</label>
+          <input class="input" id="bonus_bulk_ttl" type="number" min="1"/>
+        </div>
+      </div>
+      <div class="field">
+        <label class="muted">Source</label>
+        <input class="input" id="bonus_bulk_source" placeholder="admin_bulk"/>
+      </div>
+      <button class="btn" onclick="bulkBonus()" style="margin-top:10px">Grant bonuses</button>
+      <div id="bonus-bulk-status" class="muted"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong>Raffle controls</strong>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn" onclick="resetRaffle()">Reset period</button>
+          <button class="btn" onclick="recalcRaffle()">Recalc top</button>
+          <button class="btn" onclick="loadRaffleSummary()">Summary</button>
+          <a class="btn" href="/admin/raffle/participants?format=csv" target="_blank" rel="noopener">Export CSV</a>
+        </div>
+      </div>
+      <div class="muted">Resets current period from now.</div>
+      <div id="raffle-status" class="muted" style="margin-top:8px;"></div>
+    </div>
+    <div class="card">
       <strong>Settings</strong>
       <div class="row">
         <div class="field">
@@ -2034,6 +2136,30 @@ def _admin_panel_html(authed: bool) -> str:
       <div class="field">
         <label class="muted">Raffle prize image URL</label>
         <input class="input" id="raffle_prize_image" placeholder="https://..."/>
+      </div>
+      <div class="field">
+        <label class="muted">Banner enabled (true/false)</label>
+        <input class="input" id="banner_enabled" placeholder="false"/>
+      </div>
+      <div class="field">
+        <label class="muted">Banner title</label>
+        <input class="input" id="banner_title" placeholder="Акция недели"/>
+      </div>
+      <div class="field">
+        <label class="muted">Banner text</label>
+        <input class="input" id="banner_text" placeholder="Скидка 5% на звёзды"/>
+      </div>
+      <div class="field">
+        <label class="muted">Banner URL</label>
+        <input class="input" id="banner_url" placeholder="https://t.me/..."/>
+      </div>
+      <div class="field">
+        <label class="muted">Banner until (YYYY-MM-DD or ISO)</label>
+        <input class="input" id="banner_until" placeholder="2026-03-30"/>
+      </div>
+      <div class="field">
+        <label class="muted">Promo text in app</label>
+        <input class="input" id="promo_text" placeholder="Скидки и промокоды в нашем канале"/>
       </div>
       <button class="btn" onclick="saveSettings()" style="margin-top:10px">Save settings</button>
       <div id="settings-status" class="muted"></div>
@@ -2100,6 +2226,60 @@ def _admin_panel_html(authed: bool) -> str:
       const data = await res.json();
       document.getElementById('recent').textContent = (data.items || []).join('\\n') || 'No data';
     }
+    async function loadAnalytics(){
+      const res = await fetch('/admin/analytics', {credentials:'include'});
+      const data = await res.json();
+      if(!res.ok){ document.getElementById('analytics').textContent = 'Failed'; return; }
+      const lines = [];
+      lines.push(`Period: ${data.period_start} → ${data.period_end}`);
+      lines.push(`Opens: ${data.opens} (uniq ${data.opens_unique})`);
+      lines.push(`Selects: ${data.selects} (uniq ${data.selects_unique})`);
+      lines.push(`Created orders: ${data.created_orders}`);
+      lines.push(`Paid orders: ${data.paid_orders}`);
+      lines.push(`Failed orders: ${data.failed_orders}`);
+      lines.push(`Conversion paid: ${data.conversion_paid_pct}%`);
+      lines.push(`Open → Select: ${data.conversion_open_to_select_pct}%`);
+      lines.push(`Select → Paid: ${data.conversion_select_to_paid_pct}%`);
+      lines.push(`Paid total: ${data.paid_total_rub} ₽`);
+      lines.push(`Avg check: ${data.avg_check_rub} ₽`);
+      lines.push(`Stars sold: ${data.stars_total} (+${data.bonus_total} bonus)`);
+      lines.push(`Providers: ${JSON.stringify(data.by_provider)}`);
+      lines.push(`Revenue by provider: ${JSON.stringify(data.revenue_by_provider)}`);
+      lines.push(`Provider conversion: ${JSON.stringify(data.provider_conversion_pct)}`);
+      lines.push(`Top users by revenue: ${JSON.stringify(data.top_users_by_revenue)}`);
+      document.getElementById('analytics').textContent = lines.join('\\n');
+    }
+    async function loadPromos(filter){
+      const qs = filter ? `?filter=${encodeURIComponent(filter)}` : '';
+      const res = await fetch(`/admin/promos${qs}`, {credentials:'include'});
+      const data = await res.json();
+      if(!res.ok){ document.getElementById('promo-list').textContent = 'Failed'; return; }
+      const lines = (data.items || []).map(p => `${p.code} | ${p.percent}% | uses ${p.uses}/${p.max_uses ?? '∞'} | ${p.status} | exp ${p.expires_at || '—'}`);
+      document.getElementById('promo-list').textContent = lines.join('\\n') || 'No data';
+    }
+    async function loadBonuses(){
+      const res = await fetch('/admin/bonuses', {credentials:'include'});
+      const data = await res.json();
+      if(!res.ok){ document.getElementById('bonus-list').textContent = 'Failed'; return; }
+      const lines = (data.items || []).map(b => `${b.user_id} | ${b.stars} ⭐ | ${b.status} | ${b.source || '—'} | exp ${b.expires_at || '—'} | created ${b.created_at || '—'}`);
+      document.getElementById('bonus-list').textContent = lines.join('\\n') || 'No data';
+    }
+    async function resetRaffle(){
+      const res = await fetch('/admin/raffle/reset', {method:'POST', credentials:'include'});
+      document.getElementById('raffle-status').textContent = res.ok ? 'Reset done' : 'Reset failed';
+    }
+    async function recalcRaffle(){
+      const res = await fetch('/admin/raffle/recalc', {method:'POST', credentials:'include'});
+      const data = await res.json().catch(() => ({}));
+      document.getElementById('raffle-status').textContent = res.ok ? `Recalc OK (${data.recalc_at || ''})` : 'Recalc failed';
+    }
+    async function loadRaffleSummary(){
+      const res = await fetch('/admin/raffle/summary', {credentials:'include'});
+      const data = await res.json();
+      if(!res.ok){ document.getElementById('raffle-status').textContent = 'Summary failed'; return; }
+      const win = data.winner ? `winner ${data.winner.user_id} (${data.winner.total_stars} ⭐)` : 'winner —';
+      document.getElementById('raffle-status').textContent = `${data.period_start} → ${data.period_end} | participants ${data.total_participants} | stars ${data.total_stars} | ${win}`;
+    }
     async function loadSettings(){
       const res = await fetch('/admin/settings', {credentials:'include'});
       if(!res.ok) return;
@@ -2112,6 +2292,12 @@ def _admin_panel_html(authed: bool) -> str:
       document.getElementById('raffle_prize_title').value = data.raffle_prize_title ?? '';
       document.getElementById('raffle_prize_desc').value = data.raffle_prize_desc ?? '';
       document.getElementById('raffle_prize_image').value = data.raffle_prize_image ?? '';
+      document.getElementById('banner_enabled').value = (data.banner_enabled ?? false).toString();
+      document.getElementById('banner_title').value = data.banner_title ?? '';
+      document.getElementById('banner_text').value = data.banner_text ?? '';
+      document.getElementById('banner_url').value = data.banner_url ?? '';
+      document.getElementById('banner_until').value = data.banner_until ?? '';
+      document.getElementById('promo_text').value = data.promo_text ?? '';
     }
     async function saveSettings(){
       const payload = {
@@ -2123,6 +2309,12 @@ def _admin_panel_html(authed: bool) -> str:
         raffle_prize_title: document.getElementById('raffle_prize_title').value.trim() || null,
         raffle_prize_desc: document.getElementById('raffle_prize_desc').value.trim() || null,
         raffle_prize_image: document.getElementById('raffle_prize_image').value.trim() || null,
+        banner_enabled: (document.getElementById('banner_enabled').value || '').trim().toLowerCase() === 'true',
+        banner_title: document.getElementById('banner_title').value.trim() || null,
+        banner_text: document.getElementById('banner_text').value.trim() || null,
+        banner_url: document.getElementById('banner_url').value.trim() || null,
+        banner_until: document.getElementById('banner_until').value.trim() || null,
+        promo_text: document.getElementById('promo_text').value.trim() || null,
       };
       const res = await fetch('/admin/settings', {
         method:'POST',
@@ -2167,8 +2359,29 @@ def _admin_panel_html(authed: bool) -> str:
         ? `Link: ${data.link || ''}`
         : 'Failed';
     }
+    async function bulkBonus(){
+      const payload = {
+        user_ids: document.getElementById('bonus_bulk_ids').value.trim(),
+        stars: Number(document.getElementById('bonus_bulk_stars').value || 0),
+        ttl_minutes: Number(document.getElementById('bonus_bulk_ttl').value || 0) || null,
+        source: document.getElementById('bonus_bulk_source').value.trim() || null,
+      };
+      const res = await fetch('/admin/bonus/grant_bulk', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+        credentials:'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      document.getElementById('bonus-bulk-status').textContent = res.ok
+        ? `Created: ${data.created || 0}`
+        : 'Failed';
+    }
     loadToday();
     loadRecent();
+    loadAnalytics();
+    loadPromos();
+    loadBonuses();
     loadSettings();
   </script>
 </body>
@@ -2234,6 +2447,12 @@ class AdminSettingsPayload(BaseModel):
     raffle_prize_title: str | None = None
     raffle_prize_desc: str | None = None
     raffle_prize_image: str | None = None
+    banner_enabled: bool | None = None
+    banner_title: str | None = None
+    banner_text: str | None = None
+    banner_url: str | None = None
+    banner_until: str | None = None
+    promo_text: str | None = None
 
 
 @app.get("/admin/settings")
@@ -2250,6 +2469,12 @@ async def admin_settings(request: Request):
             "raffle_prize_title": _get_setting(db, "RAFFLE_PRIZE_TITLE", "NFT-подарок или бонусные звёзды"),
             "raffle_prize_desc": _get_setting(db, "RAFFLE_PRIZE_DESC", "Победитель получит приз после розыгрыша."),
             "raffle_prize_image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
+            "banner_enabled": _get_setting(db, "BANNER_ENABLED", "false").lower() in ("1", "true", "yes"),
+            "banner_title": _get_setting(db, "BANNER_TITLE", ""),
+            "banner_text": _get_setting(db, "BANNER_TEXT", ""),
+            "banner_url": _get_setting(db, "BANNER_URL", ""),
+            "banner_until": _get_setting(db, "BANNER_UNTIL", ""),
+            "promo_text": _get_setting(db, "PROMO_TEXT", ""),
         }
     finally:
         db.close()
@@ -2269,6 +2494,12 @@ async def admin_settings_update(request: Request, payload: AdminSettingsPayload)
             "RAFFLE_PRIZE_TITLE": payload.raffle_prize_title,
             "RAFFLE_PRIZE_DESC": payload.raffle_prize_desc,
             "RAFFLE_PRIZE_IMAGE": payload.raffle_prize_image,
+            "BANNER_ENABLED": str(payload.banner_enabled).lower() if payload.banner_enabled is not None else None,
+            "BANNER_TITLE": payload.banner_title,
+            "BANNER_TEXT": payload.banner_text,
+            "BANNER_URL": payload.banner_url,
+            "BANNER_UNTIL": payload.banner_until,
+            "PROMO_TEXT": payload.promo_text,
         }
         for key, value in updates.items():
             if value is None:
@@ -2363,6 +2594,43 @@ async def admin_bonus_claim(request: Request, payload: AdminBonusClaimPayload):
         db.close()
 
 
+class AdminBonusBulkPayload(BaseModel):
+    user_ids: str
+    stars: int
+    ttl_minutes: int | None = None
+    source: str | None = None
+
+
+@app.post("/admin/bonus/grant_bulk")
+async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayload):
+    _admin_require(request)
+    raw_ids = payload.user_ids or ""
+    tokens = re.split(r"[\\s,;]+", raw_ids.strip())
+    user_ids = [t for t in tokens if t]
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="No user_ids provided")
+    expires_at = None
+    if payload.ttl_minutes:
+        expires_at = now_msk() + timedelta(minutes=payload.ttl_minutes)
+    db = SessionLocal()
+    try:
+        created = 0
+        for uid in user_ids:
+            grant = BonusGrant(
+                user_id=uid,
+                stars=payload.stars,
+                status="active",
+                source=payload.source or "admin_bulk",
+                expires_at=expires_at,
+            )
+            db.add(grant)
+            created += 1
+        db.commit()
+        return {"status": "ok", "created": created}
+    finally:
+        db.close()
+
+
 @app.get("/settings/public")
 async def public_settings():
     db = SessionLocal()
@@ -2373,7 +2641,59 @@ async def public_settings():
             "stars_rate_3": _get_setting_float(db, "STARS_RATE_3", 1.35),
             "tier_1_max": 1000,
             "tier_2_max": 5000,
+            "banner_enabled": _get_setting(db, "BANNER_ENABLED", "false").lower() in ("1", "true", "yes"),
+            "banner_title": _get_setting(db, "BANNER_TITLE", ""),
+            "banner_text": _get_setting(db, "BANNER_TEXT", ""),
+            "banner_url": _get_setting(db, "BANNER_URL", ""),
+            "banner_until": _get_setting(db, "BANNER_UNTIL", ""),
+            "promo_text": _get_setting(db, "PROMO_TEXT", ""),
         }
+    finally:
+        db.close()
+
+
+@app.post("/analytics/visit")
+async def analytics_visit(request: Request, user_id: str | None = Query(default=None)):
+    init_data = request.headers.get("x-telegram-init-data")
+    uid = user_id
+    if not uid and init_data and _verify_telegram_init_data(init_data):
+        uid = _extract_user_id(init_data)
+    db = SessionLocal()
+    try:
+        db.execute(
+            text(
+                "INSERT INTO app_events (event_type, user_id) VALUES (:event_type, :user_id)"
+            ),
+            {"event_type": "open", "user_id": uid},
+        )
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+class AnalyticsEventPayload(BaseModel):
+    event_type: str
+
+
+@app.post("/analytics/event")
+async def analytics_event(request: Request, payload: AnalyticsEventPayload, user_id: str | None = Query(default=None)):
+    init_data = request.headers.get("x-telegram-init-data")
+    uid = user_id
+    if not uid and init_data and _verify_telegram_init_data(init_data):
+        uid = _extract_user_id(init_data)
+    if not payload.event_type:
+        raise HTTPException(status_code=400, detail="event_type required")
+    db = SessionLocal()
+    try:
+        db.execute(
+            text(
+                "INSERT INTO app_events (event_type, user_id) VALUES (:event_type, :user_id)"
+            ),
+            {"event_type": payload.event_type, "user_id": uid},
+        )
+        db.commit()
+        return {"status": "ok"}
     finally:
         db.close()
 
@@ -2452,6 +2772,386 @@ async def admin_audit_recent(request: Request, limit: int = 200):
         db.close()
     items = [_format_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
     return {"items": items}
+
+
+@app.get("/admin/analytics")
+async def admin_analytics(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        start_msk = now - timedelta(days=30)
+        end_msk = now
+        start = start_msk.astimezone(timezone.utc)
+        end = end_msk.astimezone(timezone.utc)
+
+        created_orders = db.query(Order).filter(
+            Order.timestamp >= start,
+            Order.timestamp < end
+        ).count()
+        paid_orders_q = db.query(Order).filter(
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        )
+        paid_orders = paid_orders_q.all()
+        failed_orders = db.query(Order).filter(
+            Order.status == "failed",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        ).count()
+
+        paid_total = sum((o.amount_rub or 0) for o in paid_orders)
+        avg_check = paid_total / len(paid_orders) if paid_orders else 0.0
+        stars_total = sum((o.quantity or 0) for o in paid_orders if o.product_type == "stars")
+        bonus_total = sum((o.bonus_stars_applied or 0) for o in paid_orders if o.product_type == "stars")
+
+        by_provider = {}
+        revenue_by_provider = {}
+        created_by_provider = {}
+        paid_by_provider = {}
+        for o in paid_orders:
+            key = o.payment_provider or "unknown"
+            by_provider[key] = by_provider.get(key, 0) + 1
+            revenue_by_provider[key] = round(revenue_by_provider.get(key, 0) + (o.amount_rub or 0), 2)
+            paid_by_provider[key] = paid_by_provider.get(key, 0) + 1
+        created_rows = (
+            db.query(Order.payment_provider, func.count())
+            .filter(Order.timestamp >= start, Order.timestamp < end)
+            .group_by(Order.payment_provider)
+            .all()
+        )
+        for provider, cnt in created_rows:
+            key = provider or "unknown"
+            created_by_provider[key] = int(cnt)
+
+        provider_conversion = {}
+        for key, created_cnt in created_by_provider.items():
+            paid_cnt = paid_by_provider.get(key, 0)
+            provider_conversion[key] = round((paid_cnt / created_cnt * 100), 2) if created_cnt else 0.0
+
+        conversion = round((len(paid_orders) / created_orders * 100), 2) if created_orders else 0.0
+
+        opens = db.execute(
+            text(
+                "SELECT COUNT(*) FROM app_events WHERE event_type = 'open' AND created_at >= :start AND created_at < :end"
+            ),
+            {"start": start, "end": end},
+        ).scalar() or 0
+        opens_unique = db.execute(
+            text(
+                "SELECT COUNT(DISTINCT user_id) FROM app_events WHERE event_type = 'open' AND user_id IS NOT NULL AND created_at >= :start AND created_at < :end"
+            ),
+            {"start": start, "end": end},
+        ).scalar() or 0
+        selects = db.execute(
+            text(
+                "SELECT COUNT(*) FROM app_events WHERE event_type LIKE 'select_%' AND created_at >= :start AND created_at < :end"
+            ),
+            {"start": start, "end": end},
+        ).scalar() or 0
+        selects_unique = db.execute(
+            text(
+                "SELECT COUNT(DISTINCT user_id) FROM app_events WHERE event_type LIKE 'select_%' AND user_id IS NOT NULL AND created_at >= :start AND created_at < :end"
+            ),
+            {"start": start, "end": end},
+        ).scalar() or 0
+
+        paid_users_unique = db.query(func.count(func.distinct(Order.user_id))).filter(
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end,
+        ).scalar() or 0
+
+        open_to_select = round((selects_unique / opens_unique * 100), 2) if opens_unique else 0.0
+        select_to_paid = round((paid_users_unique / selects_unique * 100), 2) if selects_unique else 0.0
+        open_to_created = round((created_orders / opens * 100), 2) if opens else 0.0
+
+        top_users = (
+            db.query(Order.user_id, func.sum(Order.amount_rub).label("total"))
+            .filter(Order.status == "paid", Order.timestamp >= start, Order.timestamp < end)
+            .group_by(Order.user_id)
+            .order_by(desc(func.sum(Order.amount_rub)))
+            .limit(10)
+            .all()
+        )
+        top_items = []
+        if top_users:
+            ids = [u.user_id for u in top_users]
+            users = db.query(User).filter(User.user_id.in_(ids)).all()
+            user_map = {}
+            for u in users:
+                if u.username:
+                    user_map[u.user_id] = f"@{u.username}"
+                elif u.full_name:
+                    user_map[u.user_id] = u.full_name
+            for uid, total in top_users:
+                top_items.append({
+                    "user_id": uid,
+                    "display": user_map.get(uid),
+                    "revenue_rub": round(float(total or 0), 2),
+                })
+
+        return {
+            "period_start": start_msk.strftime("%Y-%m-%d"),
+            "period_end": end_msk.strftime("%Y-%m-%d"),
+            "opens": int(opens),
+            "opens_unique": int(opens_unique),
+            "selects": int(selects),
+            "selects_unique": int(selects_unique),
+            "created_orders": created_orders,
+            "paid_orders": len(paid_orders),
+            "failed_orders": failed_orders,
+            "conversion_paid_pct": conversion,
+            "conversion_open_to_created_pct": open_to_created,
+            "conversion_open_to_select_pct": open_to_select,
+            "conversion_select_to_paid_pct": select_to_paid,
+            "paid_total_rub": round(paid_total, 2),
+            "avg_check_rub": round(avg_check, 2),
+            "stars_total": int(stars_total),
+            "bonus_total": int(bonus_total),
+            "by_provider": by_provider,
+            "revenue_by_provider": revenue_by_provider,
+            "provider_conversion_pct": provider_conversion,
+            "top_users_by_revenue": top_items,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/admin/promos")
+async def admin_promos(request: Request, filter: str | None = Query(default=None)):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        promos = db.query(PromoCode).order_by(PromoCode.code.asc()).all()
+        now = now_msk()
+        items = []
+        for p in promos:
+            expired = bool(p.expires_at and p.expires_at <= now)
+            used_up = bool(p.max_uses is not None and p.uses >= p.max_uses)
+            status = "active"
+            if not p.active:
+                status = "disabled"
+            elif expired:
+                status = "expired"
+            elif used_up:
+                status = "used"
+            if filter == "active" and status != "active":
+                continue
+            if filter == "expired" and status != "expired":
+                continue
+            if filter == "used" and status != "used":
+                continue
+            items.append({
+                "code": p.code,
+                "percent": p.percent,
+                "max_uses": p.max_uses,
+                "uses": p.uses,
+                "active": p.active,
+                "expires_at": p.expires_at.isoformat() if p.expires_at else None,
+                "status": status,
+            })
+        return {"items": items}
+    finally:
+        db.close()
+
+
+@app.get("/admin/bonuses")
+async def admin_bonuses(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        bonuses = db.query(BonusGrant).order_by(BonusGrant.created_at.desc()).limit(300).all()
+        items = []
+        for b in bonuses:
+            items.append({
+                "user_id": b.user_id,
+                "stars": b.stars,
+                "status": b.status,
+                "source": b.source,
+                "expires_at": b.expires_at.isoformat() if b.expires_at else None,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "consumed_at": b.consumed_at.isoformat() if b.consumed_at else None,
+                "consumed_order_id": b.consumed_order_id,
+            })
+        return {"items": items}
+    finally:
+        db.close()
+
+
+@app.post("/admin/raffle/reset")
+async def admin_raffle_reset(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        now = now_msk().isoformat()
+        row = db.query(AdminSetting).filter(AdminSetting.key == "RAFFLE_RESET_AT").first()
+        if not row:
+            row = AdminSetting(key="RAFFLE_RESET_AT", value=now)
+            db.add(row)
+        else:
+            row.value = now
+            row.updated_at = now_msk()
+        db.commit()
+        return {"status": "ok", "reset_at": now}
+    finally:
+        db.close()
+
+
+@app.post("/admin/raffle/recalc")
+async def admin_raffle_recalc(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        period_start, period_end = _raffle_period(now)
+        totals = (
+            db.query(
+                Order.user_id.label("user_id"),
+                func.sum(Order.quantity).label("total")
+            )
+            .filter(
+                Order.status == "paid",
+                Order.product_type == "stars",
+                Order.timestamp >= period_start,
+                Order.timestamp < period_end,
+            )
+            .group_by(Order.user_id)
+            .subquery()
+        )
+        top_rows = (
+            db.query(totals.c.user_id, totals.c.total)
+            .order_by(desc(totals.c.total))
+            .limit(10)
+            .all()
+        )
+        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
+        items = []
+        for row in top_rows:
+            total = int(row.total or 0)
+            chance = 0.0
+            if total_all:
+                chance = float(Decimal(str(total / total_all * 100)).quantize(Decimal("0.01")))
+            items.append({"user_id": row.user_id, "total_stars": total, "chance_percent": chance})
+        stamp = now_msk().isoformat()
+        row = db.query(AdminSetting).filter(AdminSetting.key == "RAFFLE_RECALC_AT").first()
+        if not row:
+            row = AdminSetting(key="RAFFLE_RECALC_AT", value=stamp)
+            db.add(row)
+        else:
+            row.value = stamp
+            row.updated_at = now_msk()
+        db.commit()
+        return {"status": "ok", "recalc_at": stamp, "top": items}
+    finally:
+        db.close()
+
+
+@app.get("/admin/raffle/summary")
+async def admin_raffle_summary(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        period_start, period_end = _raffle_period(now)
+        totals = (
+            db.query(
+                Order.user_id.label("user_id"),
+                func.sum(Order.quantity).label("total")
+            )
+            .filter(
+                Order.status == "paid",
+                Order.product_type == "stars",
+                Order.timestamp >= period_start,
+                Order.timestamp < period_end,
+            )
+            .group_by(Order.user_id)
+            .subquery()
+        )
+        all_rows = db.query(totals.c.user_id, totals.c.total).all()
+        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
+        is_draw_day = now.day in (15, 30)
+        winner = None
+        if is_draw_day and total_all and all_rows:
+            seed = f"raffle-{now.date().isoformat()}-{period_start.date().isoformat()}"
+            rng = random.Random(seed)
+            pick = rng.uniform(0, float(total_all))
+            acc = 0.0
+            for row in all_rows:
+                weight = float(row.total or 0)
+                acc += weight
+                if pick <= acc:
+                    winner = {"user_id": row.user_id, "total_stars": int(row.total or 0)}
+                    break
+            if winner is None and all_rows:
+                row = all_rows[0]
+                winner = {"user_id": row.user_id, "total_stars": int(row.total or 0)}
+        return {
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "total_participants": int(db.query(func.count()).select_from(totals).scalar() or 0),
+            "total_stars": int(total_all or 0),
+            "draw_day": is_draw_day,
+            "winner": winner,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/admin/raffle/participants")
+async def admin_raffle_participants(request: Request, format: str | None = Query(default=None)):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        period_start, period_end = _raffle_period(now)
+        totals = (
+            db.query(
+                Order.user_id.label("user_id"),
+                func.sum(Order.quantity).label("total")
+            )
+            .filter(
+                Order.status == "paid",
+                Order.product_type == "stars",
+                Order.timestamp >= period_start,
+                Order.timestamp < period_end,
+            )
+            .group_by(Order.user_id)
+            .subquery()
+        )
+        rows = db.query(totals.c.user_id, totals.c.total).order_by(desc(totals.c.total)).all()
+        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
+        ids = [r.user_id for r in rows]
+        user_map = {}
+        if ids:
+            users = db.query(User).filter(User.user_id.in_(ids)).all()
+            for u in users:
+                if u.username:
+                    user_map[u.user_id] = f"@{u.username}"
+                elif u.full_name:
+                    user_map[u.user_id] = u.full_name
+        items = []
+        for r in rows:
+            total = int(r.total or 0)
+            chance = 0.0
+            if total_all:
+                chance = float(Decimal(str(total / total_all * 100)).quantize(Decimal("0.01")))
+            items.append({
+                "user_id": r.user_id,
+                "username": user_map.get(r.user_id),
+                "total_stars": total,
+                "chance_percent": chance,
+            })
+        if (format or "").lower() == "csv":
+            lines = ["user_id,username,total_stars,chance_percent"]
+            for item in items:
+                username = (item["username"] or "").replace(",", " ")
+                lines.append(f"{item['user_id']},{username},{item['total_stars']},{item['chance_percent']}")
+            return PlainTextResponse("\n".join(lines), media_type="text/csv")
+        return {"items": items}
+    finally:
+        db.close()
 
 
 @app.get("/promo/validate")

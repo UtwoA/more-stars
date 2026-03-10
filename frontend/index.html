@@ -550,6 +550,7 @@
       <input type="text" id="promo-input" class="qty" placeholder="PROMO2026" />
       <button id="promo-apply" class="btn secondary" style="margin-top:12px;" data-i18n="promo_apply">Применить</button>
       <div id="promo-status" style="margin-top:10px;font-size:12px;color:var(--muted);"></div>
+      <div id="promo-text" style="margin-top:8px;font-size:12px;color:var(--muted);display:none;"></div>
     </div>
 
     <div class="card" style="text-align:center;">
@@ -617,6 +618,12 @@
 
     <section id="shop" class="page active">
       <img src="icon-1.png" alt="More Stars" class="logo" loading="eager" fetchpriority="high" decoding="sync" />
+      <div id="promo-banner" class="card" style="display:none;">
+        <div id="promo-banner-title" style="font-weight:800;margin-bottom:6px;"></div>
+        <div id="promo-banner-text" style="color:var(--muted);font-size:13px;"></div>
+        <div id="promo-banner-until" style="color:var(--muted);font-size:12px;margin-top:6px;display:none;"></div>
+        <a id="promo-banner-link" href="#" target="_blank" rel="noopener" class="btn secondary" style="margin-top:10px;display:none;">Открыть</a>
+      </div>
       <div class="card actions" role="region" aria-label="Actions">
         <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
         <div class="card" style="padding:12px;text-align:center;opacity:0.7;">
@@ -793,6 +800,11 @@ const BUILD_VERSION = "2026-02-26-01";
 let promoPercent = Number(localStorage.getItem('promoPercent') || 0);
 let promoCode = localStorage.getItem('promoCode') || "";
 let tonConnectUI = null;
+let rateTier1 = 1.39;
+let rateTier2 = 1.37;
+let rateTier3 = 1.35;
+let tier1Max = 1000;
+let tier2Max = 5000;
 
 function getTonConnectUI() {
   if (tonConnectUI) return tonConnectUI;
@@ -804,9 +816,9 @@ function getTonConnectUI() {
 }
 
 function getStarsRate(quantity) {
-  if (quantity <= 1000) return 1.39;
-  if (quantity <= 5000) return 1.37;
-  return 1.35;
+  if (quantity <= tier1Max) return rateTier1;
+  if (quantity <= tier2Max) return rateTier2;
+  return rateTier3;
 }
 
 function formatRubPrice(value) {
@@ -1131,6 +1143,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
   }
 
   try {
+    trackEvent("select_crypto");
     const userId = getNumericUserId();
     if (!userId) return;
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
@@ -1197,6 +1210,7 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
   }
 
   try {
+    trackEvent("select_sbp");
     const userId = getNumericUserId();
     if (!userId) return;
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
@@ -1320,6 +1334,7 @@ document.getElementById("pay-ton").onclick = async () => {
   }
 
   try {
+    trackEvent("select_ton");
     const userId = getNumericUserId();
     if (!userId) return;
     const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
@@ -1575,6 +1590,7 @@ function el(tag,props={},children=[]){
 // Открытия страницы оплаты
 function openPaymentPage(pkg) {
   currentPurchase = pkg;
+  trackEvent("select_product");
 
   // Заголовок покупки
   document.getElementById("payment-title").textContent = pkg.title;
@@ -1608,6 +1624,70 @@ function openPaymentPage(pkg) {
   if (paymentLink) paymentLink.style.display = "none";
 
   switchPage("payment-page");
+}
+
+async function trackEvent(eventType) {
+  try {
+    await fetch("/api/analytics/event", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...getAuthHeaders()},
+      body: JSON.stringify({event_type: eventType})
+    });
+  } catch (e) {
+    // ignore
+  }
+}
+
+async function loadPublicSettings() {
+  const data = await fetchJsonWithAuth("/api/settings/public", {headers: getAuthHeaders()});
+  if (!data) return;
+  rateTier1 = Number(data.stars_rate_1 || rateTier1);
+  rateTier2 = Number(data.stars_rate_2 || rateTier2);
+  rateTier3 = Number(data.stars_rate_3 || rateTier3);
+  tier1Max = Number(data.tier_1_max || tier1Max);
+  tier2Max = Number(data.tier_2_max || tier2Max);
+  refreshStarsPricing();
+
+  const banner = document.getElementById("promo-banner");
+  const bannerTitle = document.getElementById("promo-banner-title");
+  const bannerText = document.getElementById("promo-banner-text");
+  const bannerLink = document.getElementById("promo-banner-link");
+  const bannerUntil = document.getElementById("promo-banner-until");
+  if (banner && data.banner_enabled) {
+    banner.style.display = "block";
+    if (bannerTitle) bannerTitle.textContent = data.banner_title || "";
+    if (bannerText) bannerText.textContent = data.banner_text || "";
+    if (bannerLink) {
+      if (data.banner_url) {
+        bannerLink.href = data.banner_url;
+        bannerLink.style.display = "inline-flex";
+      } else {
+        bannerLink.style.display = "none";
+      }
+    }
+    if (bannerUntil) {
+      if (data.banner_until) {
+        bannerUntil.textContent = currentLang === "ru"
+          ? `Действует до: ${data.banner_until}`
+          : `Valid until: ${data.banner_until}`;
+        bannerUntil.style.display = "block";
+      } else {
+        bannerUntil.style.display = "none";
+      }
+    }
+  } else if (banner) {
+    banner.style.display = "none";
+  }
+
+  const promoText = document.getElementById("promo-text");
+  if (promoText) {
+    if (data.promo_text) {
+      promoText.textContent = data.promo_text;
+      promoText.style.display = "block";
+    } else {
+      promoText.style.display = "none";
+    }
+  }
 }
 
 // Рендер популярных пакетов
@@ -2290,6 +2370,14 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
   // Контент приложения всегда показываем, а доступ к закрытым страницам управляется через auth-gate-inline
   document.getElementById("app-content").style.display = "block";
+
+  try {
+    await fetch("/api/analytics/visit", {method: "POST", headers: getAuthHeaders()});
+  } catch (e) {
+    // ignore
+  }
+
+  loadPublicSettings();
 
   // --- Инициализация WebApp ---
   const userId = document.getElementById("user-id").textContent;
