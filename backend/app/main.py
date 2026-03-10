@@ -755,6 +755,10 @@ async def _send_audit_if_needed(order: Order, db) -> None:
         cost_rub = _round_money(cost_rub) or 0
         profit = _round_money(revenue - cost_rub) or 0
         per_star = _round_money(cost_rub / total_stars) if total_stars else 0
+        order.cost_rub = cost_rub
+        order.profit_rub = profit
+        order.usdtrub_rate = _round_money(usdtrub) or 0
+        order.cost_per_star = per_star
         revenue_line = (
             f"\n💰 Выручка: {revenue} ₽"
             f"\n📦 Себестоимость: {cost_rub} ₽"
@@ -2004,7 +2008,7 @@ def _admin_panel_html(authed: bool) -> str:
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Admin Audit</title>
+  <title>Админка</title>
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0;padding:24px}
     h1{margin:0 0 16px 0}
@@ -2031,6 +2035,12 @@ def _admin_panel_html(authed: bool) -> str:
     .badge.disabled{background:#1e1f26;border-color:#2a2f38;color:#9aa3b5}
     .progress{height:8px;border-radius:999px;background:#0e1116;border:1px solid #232834;overflow:hidden}
     .bar{height:100%;background:#2a8bf2}
+    .bars{display:grid;gap:6px}
+    .bar-row{display:grid;grid-template-columns:120px 1fr 60px;gap:10px;align-items:center}
+    .bar-label{font-size:12px;color:#9aa3b5}
+    .bar-value{font-size:12px;color:#c9d1e4;text-align:right}
+    .bar-track{height:8px;border-radius:999px;background:#0e1116;border:1px solid #232834;overflow:hidden}
+    .bar-fill{height:100%;background:linear-gradient(90deg,#2a8bf2,#6b5bff)}
     .stack{display:flex;flex-direction:column;gap:8px}
     .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#9aa3b5}
     .pill b{color:#e9eef7}
@@ -2038,52 +2048,87 @@ def _admin_panel_html(authed: bool) -> str:
   </style>
 </head>
 <body>
-  <h1>Admin Panel</h1>
+  <h1>Панель администратора</h1>
   <div class="grid">
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="section-title">Audit · Last 24h</div>
-        <button class="btn" onclick="loadToday()">Refresh</button>
+        <div class="section-title">Аудит · 24 часа</div>
+        <button class="btn" onclick="loadToday()">Обновить</button>
       </div>
       <pre id="today">Loading...</pre>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="section-title">Audit · Recent</div>
-        <button class="btn" onclick="loadRecent()">Refresh</button>
+        <div class="section-title">Аудит · Последние</div>
+        <button class="btn" onclick="loadRecent()">Обновить</button>
       </div>
       <pre id="recent">Loading...</pre>
-      <div class="muted">Latest 200 paid stars orders.</div>
+      <div class="muted">Последние 200 оплаченных заказов на звёзды.</div>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="section-title">Analytics</div>
-        <button class="btn" onclick="loadAnalytics()">Refresh</button>
+        <div class="section-title">Аналитика</div>
+        <button class="btn" onclick="loadAnalytics()">Обновить</button>
       </div>
       <div class="metrics" id="analytics-metrics">
-        <div class="metric"><div class="label">Opens</div><div class="value">—</div></div>
+        <div class="metric"><div class="label">Открытия</div><div class="value">—</div></div>
       </div>
       <div class="stack" style="margin-top:12px">
-        <div class="pill">Period: <b id="analytics-period">—</b></div>
-        <div class="pill">Funnel (unique): <b id="analytics-funnel-label">—</b></div>
-        <div class="progress"><div id="funnel-open" class="bar" style="width:100%"></div></div>
-        <div class="progress"><div id="funnel-select" class="bar" style="width:0%"></div></div>
-        <div class="progress"><div id="funnel-paid" class="bar" style="width:0%"></div></div>
+        <div class="pill">Период: <b id="analytics-period">—</b></div>
+        <div class="pill">Воронка (уник.): <b id="analytics-funnel-label">—</b></div>
+        <div class="bars" id="funnel-bars">
+          <div class="bar-row">
+            <div class="bar-label">Открыли</div>
+            <div class="bar-track"><div id="funnel-open" class="bar-fill" style="width:100%"></div></div>
+            <div class="bar-value" id="funnel-open-val">—</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Выбрали</div>
+            <div class="bar-track"><div id="funnel-select" class="bar-fill" style="width:0%"></div></div>
+            <div class="bar-value" id="funnel-select-val">—</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Оплатили</div>
+            <div class="bar-track"><div id="funnel-paid" class="bar-fill" style="width:0%"></div></div>
+            <div class="bar-value" id="funnel-paid-val">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="stack" style="margin-top:14px">
+        <div class="pill">P&L: <b id="analytics-pl-label">—</b></div>
+        <div class="bars">
+          <div class="bar-row">
+            <div class="bar-label">Выручка</div>
+            <div class="bar-track"><div id="pl-revenue" class="bar-fill" style="width:0%"></div></div>
+            <div class="bar-value" id="pl-revenue-val">—</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Себестоимость</div>
+            <div class="bar-track"><div id="pl-cost" class="bar-fill" style="width:0%"></div></div>
+            <div class="bar-value" id="pl-cost-val">—</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Прибыль</div>
+            <div class="bar-track"><div id="pl-profit" class="bar-fill" style="width:0%"></div></div>
+            <div class="bar-value" id="pl-profit-val">—</div>
+          </div>
+        </div>
+        <div class="muted" id="pl-rate-note"></div>
       </div>
       <div style="margin-top:14px">
-        <div class="section-title" style="font-size:14px">Providers</div>
+        <div class="section-title" style="font-size:14px">Провайдеры</div>
         <table class="table" id="analytics-providers">
           <thead>
-            <tr><th>Provider</th><th>Orders</th><th>Revenue ₽</th><th>Conv %</th></tr>
+            <tr><th>Провайдер</th><th>Заказы</th><th>Выручка ₽</th><th>Конв. %</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
       <div style="margin-top:14px">
-        <div class="section-title" style="font-size:14px">Top Users (Revenue)</div>
+        <div class="section-title" style="font-size:14px">ТОП пользователей (выручка)</div>
         <table class="table" id="analytics-top">
           <thead>
-            <tr><th>User</th><th>Revenue ₽</th></tr>
+            <tr><th>Пользователь</th><th>Выручка ₽</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -2091,182 +2136,185 @@ def _admin_panel_html(authed: bool) -> str:
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="section-title">Promocodes</div>
+        <div class="section-title">Промокоды</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn" onclick="loadPromos()">All</button>
-          <button class="btn" onclick="loadPromos('active')">Active</button>
-          <button class="btn" onclick="loadPromos('expired')">Expired</button>
-          <button class="btn" onclick="loadPromos('used')">Used</button>
+          <button class="btn" onclick="loadPromos()">Все</button>
+          <button class="btn" onclick="loadPromos('active')">Активные</button>
+          <button class="btn" onclick="loadPromos('expired')">Истёкшие</button>
+          <button class="btn" onclick="loadPromos('used')">Использованы</button>
         </div>
       </div>
       <table class="table" id="promo-table">
         <thead>
-          <tr><th>Code</th><th>%</th><th>Uses</th><th>Status</th><th>Expires</th></tr>
+          <tr><th>Код</th><th>%</th><th>Исп.</th><th>Статус</th><th>До</th></tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div class="section-title">Bonuses</div>
-        <button class="btn" onclick="loadBonuses()">Refresh</button>
+        <div class="section-title">Бонусы</div>
+        <button class="btn" onclick="loadBonuses()">Обновить</button>
       </div>
       <table class="table" id="bonus-table">
         <thead>
-          <tr><th>User</th><th>Stars</th><th>Status</th><th>Source</th><th>Expires</th><th>Created</th></tr>
+          <tr><th>Пользователь</th><th>⭐</th><th>Статус</th><th>Источник</th><th>До</th><th>Создан</th></tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
     <div class="card">
-      <strong>Bulk bonus grant</strong>
+      <strong>Массовая выдача бонусов</strong>
       <div class="field">
-        <label class="muted">User IDs (comma / space / newline separated)</label>
+        <label class="muted">User IDs (через запятую/пробел/перенос)</label>
         <textarea class="input" id="bonus_bulk_ids" rows="4" placeholder="12345, 67890"></textarea>
       </div>
       <div class="row">
         <div class="field">
-          <label class="muted">Stars</label>
+          <label class="muted">Звёзды</label>
           <input class="input" id="bonus_bulk_stars" type="number" min="1"/>
         </div>
         <div class="field">
-          <label class="muted">TTL (minutes)</label>
+          <label class="muted">TTL (мин)</label>
           <input class="input" id="bonus_bulk_ttl" type="number" min="1"/>
         </div>
       </div>
       <div class="field">
-        <label class="muted">Source</label>
+        <label class="muted">Источник</label>
         <input class="input" id="bonus_bulk_source" placeholder="admin_bulk"/>
       </div>
-      <button class="btn" onclick="bulkBonus()" style="margin-top:10px">Grant bonuses</button>
+      <button class="btn" onclick="bulkBonus()" style="margin-top:10px">Выдать бонусы</button>
       <div id="bonus-bulk-status" class="muted"></div>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>Raffle controls</strong>
+        <strong>Управление розыгрышем</strong>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn" onclick="resetRaffle()">Reset period</button>
-          <button class="btn" onclick="recalcRaffle()">Recalc top</button>
-          <button class="btn" onclick="loadRaffleSummary()">Summary</button>
-          <a class="btn" href="/admin/raffle/participants?format=csv" target="_blank" rel="noopener">Export CSV</a>
+          <button class="btn" onclick="resetRaffle()">Сбросить период</button>
+          <button class="btn" onclick="recalcRaffle()">Пересчитать топ</button>
+          <button class="btn" onclick="loadRaffleSummary()">Сводка</button>
+          <a class="btn" href="/admin/raffle/participants?format=csv" target="_blank" rel="noopener">Экспорт CSV</a>
         </div>
       </div>
-      <div class="muted">Resets current period from now.</div>
+      <div class="muted">Сбросить период — начинается новый период с текущего момента.</div>
+      <div class="muted">Пересчитать топ — мгновенно обновляет рейтинг участников.</div>
+      <div class="muted">Сводка — кто лидирует и есть ли победитель дня.</div>
+      <div class="muted">Экспорт CSV — полный список участников с шансами.</div>
       <div id="raffle-status" class="muted" style="margin-top:8px;"></div>
     </div>
     <div class="card">
-      <strong>Settings</strong>
+      <strong>Настройки</strong>
       <div class="row">
         <div class="field">
-          <label class="muted">Report time (HH:MM)</label>
+          <label class="muted">Время отчёта (HH:MM)</label>
           <input class="input" id="report_time" placeholder="00:00"/>
         </div>
         <div class="field">
-          <label class="muted">Referral %</label>
+          <label class="muted">Реферальный %</label>
           <input class="input" id="ref_percent" type="number" min="0" max="100"/>
         </div>
       </div>
       <div class="row">
         <div class="field">
-          <label class="muted">Rate tier 1 (<=1000)</label>
+          <label class="muted">Цена tier 1 (<=1000)</label>
           <input class="input" id="rate1" type="number" step="0.01"/>
         </div>
         <div class="field">
-          <label class="muted">Rate tier 2 (<=5000)</label>
+          <label class="muted">Цена tier 2 (<=5000)</label>
           <input class="input" id="rate2" type="number" step="0.01"/>
         </div>
       </div>
       <div class="field">
-        <label class="muted">Rate tier 3 (>5000)</label>
+        <label class="muted">Цена tier 3 (>5000)</label>
         <input class="input" id="rate3" type="number" step="0.01"/>
       </div>
       <div class="field">
-        <label class="muted">Raffle prize title</label>
+        <label class="muted">Приз (заголовок)</label>
         <input class="input" id="raffle_prize_title" placeholder="NFT-подарок или бонусные звёзды"/>
       </div>
       <div class="field">
-        <label class="muted">Raffle prize description</label>
+        <label class="muted">Приз (описание)</label>
         <input class="input" id="raffle_prize_desc" placeholder="Победитель получит приз после розыгрыша."/>
       </div>
       <div class="field">
-        <label class="muted">Raffle prize image URL</label>
+        <label class="muted">Ссылка на приз (URL)</label>
         <input class="input" id="raffle_prize_image" placeholder="https://..."/>
       </div>
       <div class="field">
-        <label class="muted">Banner enabled (true/false)</label>
+        <label class="muted">Баннер включён (true/false)</label>
         <input class="input" id="banner_enabled" placeholder="false"/>
       </div>
       <div class="field">
-        <label class="muted">Banner title</label>
+        <label class="muted">Заголовок баннера</label>
         <input class="input" id="banner_title" placeholder="Акция недели"/>
       </div>
       <div class="field">
-        <label class="muted">Banner text</label>
+        <label class="muted">Текст баннера</label>
         <input class="input" id="banner_text" placeholder="Скидка 5% на звёзды"/>
       </div>
       <div class="field">
-        <label class="muted">Banner URL</label>
+        <label class="muted">Ссылка баннера</label>
         <input class="input" id="banner_url" placeholder="https://t.me/..."/>
       </div>
       <div class="field">
-        <label class="muted">Banner until (YYYY-MM-DD or ISO)</label>
+        <label class="muted">Баннер до (YYYY-MM-DD или ISO)</label>
         <input class="input" id="banner_until" placeholder="2026-03-30"/>
       </div>
       <div class="field">
-        <label class="muted">Promo text in app</label>
+        <label class="muted">Текст под промокодом</label>
         <input class="input" id="promo_text" placeholder="Скидки и промокоды в нашем канале"/>
       </div>
-      <button class="btn" onclick="saveSettings()" style="margin-top:10px">Save settings</button>
+      <button class="btn" onclick="saveSettings()" style="margin-top:10px">Сохранить</button>
       <div id="settings-status" class="muted"></div>
     </div>
     <div class="card">
-      <strong>Create Promo</strong>
+      <strong>Создать промокод</strong>
       <div class="row">
         <div class="field">
-          <label class="muted">Code</label>
+          <label class="muted">Код</label>
           <input class="input" id="promo_code" placeholder="PROMO2026"/>
         </div>
         <div class="field">
-          <label class="muted">Percent</label>
+          <label class="muted">Процент</label>
           <input class="input" id="promo_percent" type="number" min="1" max="100"/>
         </div>
       </div>
       <div class="row">
         <div class="field">
-          <label class="muted">Max uses</label>
+          <label class="muted">Лимит использований</label>
           <input class="input" id="promo_max" type="number" min="1"/>
         </div>
         <div class="field">
-          <label class="muted">Expires (YYYY-MM-DD)</label>
+          <label class="muted">Истекает (YYYY-MM-DD)</label>
           <input class="input" id="promo_exp" placeholder="2026-12-31"/>
         </div>
       </div>
-      <button class="btn" onclick="createPromo()" style="margin-top:10px">Create promo</button>
+      <button class="btn" onclick="createPromo()" style="margin-top:10px">Создать</button>
       <div id="promo-status" class="muted"></div>
     </div>
     <div class="card">
-      <strong>Create Bonus Link</strong>
+      <strong>Создать бонус-ссылку</strong>
       <div class="row">
         <div class="field">
-          <label class="muted">Stars</label>
+          <label class="muted">Звёзды</label>
           <input class="input" id="bonus_stars" type="number" min="1"/>
         </div>
         <div class="field">
-          <label class="muted">TTL (minutes)</label>
+          <label class="muted">TTL (мин)</label>
           <input class="input" id="bonus_ttl" type="number" min="1"/>
         </div>
       </div>
       <div class="row">
         <div class="field">
-          <label class="muted">Max uses</label>
+          <label class="muted">Лимит использований</label>
           <input class="input" id="bonus_max" type="number" min="1"/>
         </div>
         <div class="field">
-          <label class="muted">Source</label>
+          <label class="muted">Источник</label>
           <input class="input" id="bonus_source" placeholder="promo_tg"/>
         </div>
       </div>
-      <button class="btn" onclick="createBonus()" style="margin-top:10px">Create bonus link</button>
+      <button class="btn" onclick="createBonus()" style="margin-top:10px">Создать ссылку</button>
       <div id="bonus-status" class="muted"></div>
     </div>
   </div>
@@ -2274,33 +2322,35 @@ def _admin_panel_html(authed: bool) -> str:
     async function loadToday(){
       const res = await fetch('/admin/audit/today', {credentials:'include'});
       const data = await res.json();
-      document.getElementById('today').textContent = (data.items || []).join('\\n') || 'No data';
+      document.getElementById('today').textContent = (data.items || []).join('\\n') || 'Нет данных';
     }
     async function loadRecent(){
       const res = await fetch('/admin/audit/recent', {credentials:'include'});
       const data = await res.json();
-      document.getElementById('recent').textContent = (data.items || []).join('\\n') || 'No data';
+      document.getElementById('recent').textContent = (data.items || []).join('\\n') || 'Нет данных';
     }
     async function loadAnalytics(){
       const res = await fetch('/admin/analytics', {credentials:'include'});
       const data = await res.json();
       if(!res.ok){
         const metrics = document.getElementById('analytics-metrics');
-        if (metrics) metrics.innerHTML = '<div class="metric"><div class="label">Error</div><div class="value">Failed</div></div>';
+        if (metrics) metrics.innerHTML = '<div class="metric"><div class="label">Ошибка</div><div class="value">Не удалось</div></div>';
         return;
       }
       const metrics = document.getElementById('analytics-metrics');
       if (metrics) {
         metrics.innerHTML = '';
         const items = [
-          {label:'Opens', value:`${data.opens} (${data.opens_unique} uniq)`},
-          {label:'Selects', value:`${data.selects} (${data.selects_unique} uniq)`},
-          {label:'Created', value:data.created_orders},
-          {label:'Paid', value:data.paid_orders},
-          {label:'Failed', value:data.failed_orders},
-          {label:'Paid total', value:`${data.paid_total_rub} ₽`},
-          {label:'Avg чек', value:`${data.avg_check_rub} ₽`},
-          {label:'Stars', value:`${data.stars_total} +${data.bonus_total}`},
+          {label:'Открытия', value:`${data.opens} (${data.opens_unique} уник.)`},
+          {label:'Выборы', value:`${data.selects} (${data.selects_unique} уник.)`},
+          {label:'Создано', value:data.created_orders},
+          {label:'Оплачено', value:data.paid_orders},
+          {label:'Неудачи', value:data.failed_orders},
+          {label:'Выручка', value:`${data.paid_total_rub} ₽`},
+          {label:'Себестоимость', value:`${data.cost_total_rub ?? 0} ₽`},
+          {label:'Прибыль', value:`${data.profit_total_rub ?? 0} ₽`},
+          {label:'Средний чек', value:`${data.avg_check_rub} ₽`},
+          {label:'Звёзды', value:`${data.stars_total} +${data.bonus_total}`},
         ];
         items.forEach(it => {
           const el = document.createElement('div');
@@ -2322,6 +2372,48 @@ def _admin_panel_html(authed: bool) -> str:
       if (openBar) openBar.style.width = '100%';
       if (selectBar) selectBar.style.width = `${Math.min(100, selectPct).toFixed(1)}%`;
       if (paidBar) paidBar.style.width = `${Math.min(100, paidPct).toFixed(1)}%`;
+      const openValEl = document.getElementById('funnel-open-val');
+      const selectValEl = document.getElementById('funnel-select-val');
+      const paidValEl = document.getElementById('funnel-paid-val');
+      if (openValEl) openValEl.textContent = `${data.opens_unique || 0}`;
+      if (selectValEl) selectValEl.textContent = `${data.selects_unique || 0}`;
+      if (paidValEl) paidValEl.textContent = `${data.paid_orders || 0}`;
+
+      const revenue = Number(data.paid_total_rub || 0);
+      const cost = Number(data.cost_total_rub || 0);
+      const profit = Number(data.profit_total_rub || 0);
+      const maxPL = Math.max(1, revenue, cost, Math.abs(profit));
+      const plLabel = document.getElementById('analytics-pl-label');
+      if (plLabel) plLabel.textContent = `${revenue} ₽ / ${cost} ₽ / ${profit} ₽`;
+      const plRevenue = document.getElementById('pl-revenue');
+      const plCost = document.getElementById('pl-cost');
+      const plProfit = document.getElementById('pl-profit');
+      if (plRevenue) {
+        plRevenue.style.width = `${Math.min(100, (revenue / maxPL) * 100).toFixed(1)}%`;
+        plRevenue.style.background = 'linear-gradient(90deg,#2a8bf2,#6b5bff)';
+      }
+      if (plCost) {
+        plCost.style.width = `${Math.min(100, (cost / maxPL) * 100).toFixed(1)}%`;
+        plCost.style.background = 'linear-gradient(90deg,#f59e0b,#f97316)';
+      }
+      if (plProfit) {
+        plProfit.style.width = `${Math.min(100, (Math.abs(profit) / maxPL) * 100).toFixed(1)}%`;
+        plProfit.style.background = profit >= 0
+          ? 'linear-gradient(90deg,#22c55e,#86efac)'
+          : 'linear-gradient(90deg,#ef4444,#f97316)';
+      }
+      const plRevenueVal = document.getElementById('pl-revenue-val');
+      const plCostVal = document.getElementById('pl-cost-val');
+      const plProfitVal = document.getElementById('pl-profit-val');
+      if (plRevenueVal) plRevenueVal.textContent = `${revenue} ₽`;
+      if (plCostVal) plCostVal.textContent = `${cost} ₽`;
+      if (plProfitVal) plProfitVal.textContent = `${profit} ₽`;
+      const rateNote = document.getElementById('pl-rate-note');
+      if (rateNote) {
+        rateNote.textContent = data.usdtrub_rate
+          ? `Курс для себестоимости: ${data.cost_rate_label || 'USD/RUB'} ${data.usdtrub_rate} ₽`
+          : '';
+      }
 
       const providersTbody = document.querySelector('#analytics-providers tbody');
       if (providersTbody) {
@@ -2360,29 +2452,33 @@ def _admin_panel_html(authed: bool) -> str:
       const data = await res.json();
       const body = document.querySelector('#promo-table tbody');
       if (!body) return;
-      if(!res.ok){ body.innerHTML = '<tr><td colspan="5" class="muted">Failed</td></tr>'; return; }
+      if(!res.ok){ body.innerHTML = '<tr><td colspan="5" class="muted">Не удалось</td></tr>'; return; }
       const items = data.items || [];
       body.innerHTML = '';
       items.forEach(p => {
         const tr = document.createElement('tr');
         const status = p.status || (p.active ? 'active' : 'disabled');
+        const statusLabel = status === 'active' ? 'активен'
+          : status === 'expired' ? 'истёк'
+          : status === 'used' ? 'исчерпан'
+          : 'выключен';
         tr.innerHTML = `
           <td>${p.code}</td>
           <td>${p.percent}%</td>
           <td>${p.uses}/${p.max_uses ?? '∞'}</td>
-          <td><span class="badge ${status}">${status}</span></td>
+          <td><span class="badge ${status}">${statusLabel}</span></td>
           <td>${p.expires_at || '—'}</td>
         `;
         body.appendChild(tr);
       });
-      if (!items.length) body.innerHTML = '<tr><td colspan="5" class="muted">No data</td></tr>';
+      if (!items.length) body.innerHTML = '<tr><td colspan="5" class="muted">Нет данных</td></tr>';
     }
     async function loadBonuses(){
       const res = await fetch('/admin/bonuses', {credentials:'include'});
       const data = await res.json();
       const body = document.querySelector('#bonus-table tbody');
       if (!body) return;
-      if(!res.ok){ body.innerHTML = '<tr><td colspan="6" class="muted">Failed</td></tr>'; return; }
+      if(!res.ok){ body.innerHTML = '<tr><td colspan="6" class="muted">Не удалось</td></tr>'; return; }
       const items = data.items || [];
       body.innerHTML = '';
       items.forEach(b => {
@@ -2397,23 +2493,23 @@ def _admin_panel_html(authed: bool) -> str:
         `;
         body.appendChild(tr);
       });
-      if (!items.length) body.innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>';
+      if (!items.length) body.innerHTML = '<tr><td colspan="6" class="muted">Нет данных</td></tr>';
     }
     async function resetRaffle(){
       const res = await fetch('/admin/raffle/reset', {method:'POST', credentials:'include'});
-      document.getElementById('raffle-status').textContent = res.ok ? 'Reset done' : 'Reset failed';
+      document.getElementById('raffle-status').textContent = res.ok ? 'Период сброшен' : 'Сброс не удался';
     }
     async function recalcRaffle(){
       const res = await fetch('/admin/raffle/recalc', {method:'POST', credentials:'include'});
       const data = await res.json().catch(() => ({}));
-      document.getElementById('raffle-status').textContent = res.ok ? `Recalc OK (${data.recalc_at || ''})` : 'Recalc failed';
+      document.getElementById('raffle-status').textContent = res.ok ? `Пересчёт OK (${data.recalc_at || ''})` : 'Пересчёт не удался';
     }
     async function loadRaffleSummary(){
       const res = await fetch('/admin/raffle/summary', {credentials:'include'});
       const data = await res.json();
-      if(!res.ok){ document.getElementById('raffle-status').textContent = 'Summary failed'; return; }
-      const win = data.winner ? `winner ${data.winner.user_id} (${data.winner.total_stars} ⭐)` : 'winner —';
-      document.getElementById('raffle-status').textContent = `${data.period_start} → ${data.period_end} | participants ${data.total_participants} | stars ${data.total_stars} | ${win}`;
+      if(!res.ok){ document.getElementById('raffle-status').textContent = 'Сводка не получена'; return; }
+      const win = data.winner ? `победитель ${data.winner.user_id} (${data.winner.total_stars} ⭐)` : 'победитель —';
+      document.getElementById('raffle-status').textContent = `${data.period_start} → ${data.period_end} | участников ${data.total_participants} | звёзд ${data.total_stars} | ${win}`;
     }
     async function loadSettings(){
       const res = await fetch('/admin/settings', {credentials:'include'});
@@ -2457,7 +2553,7 @@ def _admin_panel_html(authed: bool) -> str:
         body: JSON.stringify(payload),
         credentials:'include'
       });
-      document.getElementById('settings-status').textContent = res.ok ? 'Saved' : 'Save failed';
+      document.getElementById('settings-status').textContent = res.ok ? 'Сохранено' : 'Ошибка сохранения';
     }
     async function createPromo(){
       const payload = {
@@ -2474,7 +2570,7 @@ def _admin_panel_html(authed: bool) -> str:
         credentials:'include'
       });
       const data = await res.json().catch(() => ({}));
-      document.getElementById('promo-status').textContent = res.ok ? `OK: ${data.code || payload.code}` : 'Failed';
+      document.getElementById('promo-status').textContent = res.ok ? `OK: ${data.code || payload.code}` : 'Не удалось';
     }
     async function createBonus(){
       const payload = {
@@ -2491,8 +2587,8 @@ def _admin_panel_html(authed: bool) -> str:
       });
       const data = await res.json().catch(() => ({}));
       document.getElementById('bonus-status').textContent = res.ok
-        ? `Link: ${data.link || ''}`
-        : 'Failed';
+        ? `Ссылка: ${data.link || ''}`
+        : 'Не удалось';
     }
     async function bulkBonus(){
       const payload = {
@@ -2509,8 +2605,8 @@ def _admin_panel_html(authed: bool) -> str:
       });
       const data = await res.json().catch(() => ({}));
       document.getElementById('bonus-bulk-status').textContent = res.ok
-        ? `Created: ${data.created || 0}`
-        : 'Failed';
+        ? `Создано: ${data.created || 0}`
+        : 'Не удалось';
     }
     loadToday();
     loadRecent();
@@ -2941,6 +3037,45 @@ async def admin_analytics(request: Request):
         stars_total = sum((o.quantity or 0) for o in paid_orders if o.product_type == "stars")
         bonus_total = sum((o.bonus_stars_applied or 0) for o in paid_orders if o.product_type == "stars")
 
+        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in paid_orders)
+        usdtrub = None
+        rate_label = None
+        if need_cost_calc:
+            if STAR_COST_RATE_SOURCE == "moex":
+                usdtrub = await get_moex_usdrub_rate()
+                rate_label = "MOEX USD/RUB"
+            else:
+                usdtrub = await get_usdtrub_rate()
+                rate_label = "Binance USDTRUB"
+
+        total_cost = 0.0
+        total_profit = 0.0
+        for o in paid_orders:
+            if o.cost_rub is not None and o.profit_rub is not None:
+                total_cost += o.cost_rub or 0
+                total_profit += o.profit_rub or 0
+                continue
+            total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
+            if total_stars <= 0 or usdtrub is None:
+                continue
+            cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
+            cost_rub = _round_money(cost_usd * usdtrub) or 0
+            revenue = _round_money(o.amount_rub) or 0
+            profit = _round_money(revenue - cost_rub) or 0
+            per_star = _round_money(cost_rub / total_stars) if total_stars else 0
+            o.cost_rub = cost_rub
+            o.profit_rub = profit
+            o.cost_per_star = per_star
+            o.usdtrub_rate = _round_money(usdtrub) or 0
+            total_cost += cost_rub
+            total_profit += profit
+
+        if need_cost_calc:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
         by_provider = {}
         revenue_by_provider = {}
         created_by_provider = {}
@@ -3042,6 +3177,10 @@ async def admin_analytics(request: Request):
             "conversion_open_to_select_pct": open_to_select,
             "conversion_select_to_paid_pct": select_to_paid,
             "paid_total_rub": round(paid_total, 2),
+            "cost_total_rub": round(total_cost, 2),
+            "profit_total_rub": round(total_profit, 2),
+            "cost_rate_label": rate_label,
+            "usdtrub_rate": round(float(usdtrub), 2) if usdtrub is not None else None,
             "avg_check_rub": round(avg_check, 2),
             "stars_total": int(stars_total),
             "bonus_total": int(bonus_total),
