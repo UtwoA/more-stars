@@ -265,6 +265,8 @@
       font-size:14px;
     }
     .pkg .price{ color:var(--muted); font-size:13px; }
+    .pkg .price-wrap{display:flex;flex-direction:column;gap:2px;line-height:1.1}
+    .pkg .rate{font-size:11px;color:var(--muted);opacity:0.85;white-space:nowrap}
 
     .pkg .badge{
       display:inline-flex; align-items:center; justify-content:center; text-align:center; line-height:1;
@@ -1697,14 +1699,15 @@ function renderPopular(){
   popularPackages.forEach((pkg,i)=>{
     const card=el('div',{class:'pkg',role:'button',tabindex:'0','aria-label':`${pkg.title} ${pkg.price}`});
     const topChildren = [el('div',{class:'title',text:pkg.title})];
-    if (pkg.product_type === 'stars' && pkg.quantity) {
-      const perStar = getStarsRate(pkg.quantity);
-      topChildren.push(el('div',{class:'badge',text:`${perStar.toFixed(2)} ₽/⭐`}));
-    }
     if (pkg.badge) topChildren.push(el('div',{class:'badge',text:pkg.badge}));
     const top=el('div',{class:'top-row'}, topChildren);
-  const bottom=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
+  const perStar = (pkg.product_type === 'stars' && pkg.quantity) ? getStarsRate(pkg.quantity) : null;
+  const priceWrap = el('div',{class:'price-wrap'},[
       el('div',{class:'price',text:pkg.price}),
+      perStar !== null ? el('div',{class:'rate',text:`${perStar.toFixed(2)}/шт`}) : null
+    ].filter(Boolean));
+  const bottom=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
+      priceWrap,
       el('button',{class:'btn',text:'buy','data-i18n':'buy'})
     ]);
     bottom.querySelector('button').addEventListener('click',()=>openRecipientPage(pkg));
@@ -2249,16 +2252,17 @@ function renderGrid(gridId, packages){
     } else {
       // Обычные карточки
       const topChildren = [el('div', { class: 'title', text: pkg.title })];
-      if (pkg.product_type === 'stars' && pkg.quantity) {
-        const perStar = getStarsRate(pkg.quantity);
-        topChildren.push(el('div', { class: 'badge', text: `${perStar.toFixed(2)} ₽/⭐` }));
-      }
       if(pkg.badge) topChildren.push(el('div', { class: 'badge', text: pkg.badge }));
 
       const top = el('div', { class: 'top-row' }, topChildren);
 
-      const bottom = el('div', { class: 'bottom-row' }, [
+      const perStar = (pkg.product_type === 'stars' && pkg.quantity) ? getStarsRate(pkg.quantity) : null;
+      const priceWrap = el('div', { class: 'price-wrap' }, [
         el('div', { class: 'price', text: pkg.price }),
+        perStar !== null ? el('div', { class: 'rate', text: `${perStar.toFixed(2)}/шт` }) : null
+      ].filter(Boolean));
+      const bottom = el('div', { class: 'bottom-row' }, [
+        priceWrap,
         el('button', { class: 'btn', text: 'buy', 'data-i18n': 'buy' })
       ]);
 
