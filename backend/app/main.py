@@ -1990,7 +1990,8 @@ def _admin_panel_html(authed: bool) -> str:
           else a.classList.remove('active');
         });
         document.querySelectorAll('.card[data-page]').forEach(card => {
-          card.style.display = card.dataset.page === page ? 'block' : 'none';
+          if (card.dataset.page === page) card.classList.add('active');
+          else card.classList.remove('active');
         });
         if (page === 'dashboard') { loadToday(); loadRecent(); }
         if (page === 'analytics') { loadAnalytics(); loadAnalyticsDaily(); }
@@ -2000,14 +2001,14 @@ def _admin_panel_html(authed: bool) -> str:
         if (page === 'raffle') { loadRaffleSummary(); }
         if (page === 'settings') { loadSettings(); }
       }
-      document.querySelectorAll('.nav a').forEach(a => {
-        a.addEventListener('click', (e) => {
-          e.preventDefault();
-          const page = a.dataset.page;
-          if (!page) return;
-          history.replaceState(null, '', `#${page}`);
-          setPage(page);
-        });
+      navRoot.addEventListener('click', (e) => {
+        const link = e.target.closest('a[data-page]');
+        if (!link) return;
+        e.preventDefault();
+        const page = link.dataset.page;
+        if (!page) return;
+        history.replaceState(null, '', `#${page}`);
+        setPage(page);
       });
       const initialPage = (location.hash || '#dashboard').replace('#','');
       setPage(initialPage);
@@ -2084,6 +2085,8 @@ def _admin_panel_html(authed: bool) -> str:
     .content{padding:24px}
     .grid{display:grid;grid-template-columns:1fr;gap:16px}
     .card{background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:16px}
+    .card[data-page]{display:none}
+    .card[data-page].active{display:block}
     .section-title{font-weight:800;margin:0 0 10px 0}
     .muted{color:#8b93a7;font-size:12px}
     .btn{display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:10px;border:1px solid #2a2f38;background:#101318;color:#e9eef7;cursor:pointer}
