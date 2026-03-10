@@ -2008,29 +2008,48 @@ def _admin_panel_html(authed: bool) -> str:
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0;padding:24px}
     h1{margin:0 0 16px 0}
-    .grid{display:grid;grid-template-columns:1fr;gap:14px}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
     .card{background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:16px}
-    pre{white-space:pre-wrap;word-break:break-word;color:#c9d1e4;font-size:13px}
+    .section-title{font-weight:800;margin:0 0 10px 0}
     .muted{color:#8b93a7;font-size:12px}
     .btn{display:inline-flex;gap:8px;align-items:center;padding:8px 12px;border-radius:10px;border:1px solid #2a2f38;background:#101318;color:#e9eef7;cursor:pointer}
+    .btn.primary{background:#2a8bf2;border-color:#2a8bf2}
     .field{display:flex;flex-direction:column;gap:6px;margin-top:10px}
     .input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #2a2f38;background:#0e1116;color:#e9eef7}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
+    .metric{background:#101318;border:1px solid #212632;border-radius:12px;padding:12px}
+    .metric .label{color:#8b93a7;font-size:12px;margin-bottom:6px}
+    .metric .value{font-size:18px;font-weight:800}
+    .table{width:100%;border-collapse:collapse;font-size:13px}
+    .table th,.table td{padding:8px 10px;border-bottom:1px solid #232834;text-align:left}
+    .table th{color:#9aa3b5;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #2a2f38}
+    .badge.active{background:#0f2c1e;border-color:#1c6b4b;color:#7fe8b8}
+    .badge.expired{background:#2a1b1b;border-color:#6b2a2a;color:#f1a3a3}
+    .badge.used{background:#2a231b;border-color:#6b562a;color:#f5d38a}
+    .badge.disabled{background:#1e1f26;border-color:#2a2f38;color:#9aa3b5}
+    .progress{height:8px;border-radius:999px;background:#0e1116;border:1px solid #232834;overflow:hidden}
+    .bar{height:100%;background:#2a8bf2}
+    .stack{display:flex;flex-direction:column;gap:8px}
+    .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#9aa3b5}
+    .pill b{color:#e9eef7}
+    pre{white-space:pre-wrap;word-break:break-word;color:#c9d1e4;font-size:13px}
   </style>
 </head>
 <body>
-  <h1>Audit</h1>
+  <h1>Admin Panel</h1>
   <div class="grid">
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>Last 24h</strong>
+        <div class="section-title">Audit · Last 24h</div>
         <button class="btn" onclick="loadToday()">Refresh</button>
       </div>
       <pre id="today">Loading...</pre>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>Recent</strong>
+        <div class="section-title">Audit · Recent</div>
         <button class="btn" onclick="loadRecent()">Refresh</button>
       </div>
       <pre id="recent">Loading...</pre>
@@ -2038,15 +2057,41 @@ def _admin_panel_html(authed: bool) -> str:
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>Analytics</strong>
+        <div class="section-title">Analytics</div>
         <button class="btn" onclick="loadAnalytics()">Refresh</button>
       </div>
-      <pre id="analytics">Loading...</pre>
-      <div class="muted">Last 30 days summary.</div>
+      <div class="metrics" id="analytics-metrics">
+        <div class="metric"><div class="label">Opens</div><div class="value">—</div></div>
+      </div>
+      <div class="stack" style="margin-top:12px">
+        <div class="pill">Period: <b id="analytics-period">—</b></div>
+        <div class="pill">Funnel (unique): <b id="analytics-funnel-label">—</b></div>
+        <div class="progress"><div id="funnel-open" class="bar" style="width:100%"></div></div>
+        <div class="progress"><div id="funnel-select" class="bar" style="width:0%"></div></div>
+        <div class="progress"><div id="funnel-paid" class="bar" style="width:0%"></div></div>
+      </div>
+      <div style="margin-top:14px">
+        <div class="section-title" style="font-size:14px">Providers</div>
+        <table class="table" id="analytics-providers">
+          <thead>
+            <tr><th>Provider</th><th>Orders</th><th>Revenue ₽</th><th>Conv %</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div style="margin-top:14px">
+        <div class="section-title" style="font-size:14px">Top Users (Revenue)</div>
+        <table class="table" id="analytics-top">
+          <thead>
+            <tr><th>User</th><th>Revenue ₽</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>Promocodes</strong>
+        <div class="section-title">Promocodes</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn" onclick="loadPromos()">All</button>
           <button class="btn" onclick="loadPromos('active')">Active</button>
@@ -2054,14 +2099,24 @@ def _admin_panel_html(authed: bool) -> str:
           <button class="btn" onclick="loadPromos('used')">Used</button>
         </div>
       </div>
-      <pre id="promo-list">Loading...</pre>
+      <table class="table" id="promo-table">
+        <thead>
+          <tr><th>Code</th><th>%</th><th>Uses</th><th>Status</th><th>Expires</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <strong>Bonuses</strong>
+        <div class="section-title">Bonuses</div>
         <button class="btn" onclick="loadBonuses()">Refresh</button>
       </div>
-      <pre id="bonus-list">Loading...</pre>
+      <table class="table" id="bonus-table">
+        <thead>
+          <tr><th>User</th><th>Stars</th><th>Status</th><th>Source</th><th>Expires</th><th>Created</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
     <div class="card">
       <strong>Bulk bonus grant</strong>
@@ -2229,40 +2284,120 @@ def _admin_panel_html(authed: bool) -> str:
     async function loadAnalytics(){
       const res = await fetch('/admin/analytics', {credentials:'include'});
       const data = await res.json();
-      if(!res.ok){ document.getElementById('analytics').textContent = 'Failed'; return; }
-      const lines = [];
-      lines.push(`Period: ${data.period_start} → ${data.period_end}`);
-      lines.push(`Opens: ${data.opens} (uniq ${data.opens_unique})`);
-      lines.push(`Selects: ${data.selects} (uniq ${data.selects_unique})`);
-      lines.push(`Created orders: ${data.created_orders}`);
-      lines.push(`Paid orders: ${data.paid_orders}`);
-      lines.push(`Failed orders: ${data.failed_orders}`);
-      lines.push(`Conversion paid: ${data.conversion_paid_pct}%`);
-      lines.push(`Open → Select: ${data.conversion_open_to_select_pct}%`);
-      lines.push(`Select → Paid: ${data.conversion_select_to_paid_pct}%`);
-      lines.push(`Paid total: ${data.paid_total_rub} ₽`);
-      lines.push(`Avg check: ${data.avg_check_rub} ₽`);
-      lines.push(`Stars sold: ${data.stars_total} (+${data.bonus_total} bonus)`);
-      lines.push(`Providers: ${JSON.stringify(data.by_provider)}`);
-      lines.push(`Revenue by provider: ${JSON.stringify(data.revenue_by_provider)}`);
-      lines.push(`Provider conversion: ${JSON.stringify(data.provider_conversion_pct)}`);
-      lines.push(`Top users by revenue: ${JSON.stringify(data.top_users_by_revenue)}`);
-      document.getElementById('analytics').textContent = lines.join('\\n');
+      if(!res.ok){
+        const metrics = document.getElementById('analytics-metrics');
+        if (metrics) metrics.innerHTML = '<div class="metric"><div class="label">Error</div><div class="value">Failed</div></div>';
+        return;
+      }
+      const metrics = document.getElementById('analytics-metrics');
+      if (metrics) {
+        metrics.innerHTML = '';
+        const items = [
+          {label:'Opens', value:`${data.opens} (${data.opens_unique} uniq)`},
+          {label:'Selects', value:`${data.selects} (${data.selects_unique} uniq)`},
+          {label:'Created', value:data.created_orders},
+          {label:'Paid', value:data.paid_orders},
+          {label:'Failed', value:data.failed_orders},
+          {label:'Paid total', value:`${data.paid_total_rub} ₽`},
+          {label:'Avg чек', value:`${data.avg_check_rub} ₽`},
+          {label:'Stars', value:`${data.stars_total} +${data.bonus_total}`},
+        ];
+        items.forEach(it => {
+          const el = document.createElement('div');
+          el.className = 'metric';
+          el.innerHTML = `<div class="label">${it.label}</div><div class="value">${it.value}</div>`;
+          metrics.appendChild(el);
+        });
+      }
+      const periodEl = document.getElementById('analytics-period');
+      if (periodEl) periodEl.textContent = `${data.period_start} → ${data.period_end}`;
+      const funnelLabel = document.getElementById('analytics-funnel-label');
+      if (funnelLabel) funnelLabel.textContent = `${data.opens_unique} → ${data.selects_unique} → ${data.paid_orders}`;
+      const openBar = document.getElementById('funnel-open');
+      const selectBar = document.getElementById('funnel-select');
+      const paidBar = document.getElementById('funnel-paid');
+      const openVal = Math.max(1, data.opens_unique || 0);
+      const selectPct = data.opens_unique ? (data.selects_unique / openVal) * 100 : 0;
+      const paidPct = data.opens_unique ? (data.paid_orders / openVal) * 100 : 0;
+      if (openBar) openBar.style.width = '100%';
+      if (selectBar) selectBar.style.width = `${Math.min(100, selectPct).toFixed(1)}%`;
+      if (paidBar) paidBar.style.width = `${Math.min(100, paidPct).toFixed(1)}%`;
+
+      const providersTbody = document.querySelector('#analytics-providers tbody');
+      if (providersTbody) {
+        providersTbody.innerHTML = '';
+        const providers = data.by_provider || {};
+        Object.keys(providers).forEach((key) => {
+          const revenue = (data.revenue_by_provider || {})[key] ?? 0;
+          const conv = (data.provider_conversion_pct || {})[key] ?? 0;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${key}</td><td>${providers[key]}</td><td>${revenue}</td><td>${conv}%</td>`;
+          providersTbody.appendChild(tr);
+        });
+        if (!Object.keys(providers).length) {
+          providersTbody.innerHTML = '<tr><td colspan="4" class="muted">Нет данных</td></tr>';
+        }
+      }
+
+      const topTbody = document.querySelector('#analytics-top tbody');
+      if (topTbody) {
+        topTbody.innerHTML = '';
+        const top = data.top_users_by_revenue || [];
+        top.forEach(item => {
+          const name = item.display || `id ${item.user_id}`;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${name}</td><td>${item.revenue_rub}</td>`;
+          topTbody.appendChild(tr);
+        });
+        if (!top.length) {
+          topTbody.innerHTML = '<tr><td colspan="2" class="muted">Нет данных</td></tr>';
+        }
+      }
     }
     async function loadPromos(filter){
       const qs = filter ? `?filter=${encodeURIComponent(filter)}` : '';
       const res = await fetch(`/admin/promos${qs}`, {credentials:'include'});
       const data = await res.json();
-      if(!res.ok){ document.getElementById('promo-list').textContent = 'Failed'; return; }
-      const lines = (data.items || []).map(p => `${p.code} | ${p.percent}% | uses ${p.uses}/${p.max_uses ?? '∞'} | ${p.status} | exp ${p.expires_at || '—'}`);
-      document.getElementById('promo-list').textContent = lines.join('\\n') || 'No data';
+      const body = document.querySelector('#promo-table tbody');
+      if (!body) return;
+      if(!res.ok){ body.innerHTML = '<tr><td colspan="5" class="muted">Failed</td></tr>'; return; }
+      const items = data.items || [];
+      body.innerHTML = '';
+      items.forEach(p => {
+        const tr = document.createElement('tr');
+        const status = p.status || (p.active ? 'active' : 'disabled');
+        tr.innerHTML = `
+          <td>${p.code}</td>
+          <td>${p.percent}%</td>
+          <td>${p.uses}/${p.max_uses ?? '∞'}</td>
+          <td><span class="badge ${status}">${status}</span></td>
+          <td>${p.expires_at || '—'}</td>
+        `;
+        body.appendChild(tr);
+      });
+      if (!items.length) body.innerHTML = '<tr><td colspan="5" class="muted">No data</td></tr>';
     }
     async function loadBonuses(){
       const res = await fetch('/admin/bonuses', {credentials:'include'});
       const data = await res.json();
-      if(!res.ok){ document.getElementById('bonus-list').textContent = 'Failed'; return; }
-      const lines = (data.items || []).map(b => `${b.user_id} | ${b.stars} ⭐ | ${b.status} | ${b.source || '—'} | exp ${b.expires_at || '—'} | created ${b.created_at || '—'}`);
-      document.getElementById('bonus-list').textContent = lines.join('\\n') || 'No data';
+      const body = document.querySelector('#bonus-table tbody');
+      if (!body) return;
+      if(!res.ok){ body.innerHTML = '<tr><td colspan="6" class="muted">Failed</td></tr>'; return; }
+      const items = data.items || [];
+      body.innerHTML = '';
+      items.forEach(b => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${b.user_id}</td>
+          <td>${b.stars} ⭐</td>
+          <td>${b.status}</td>
+          <td>${b.source || '—'}</td>
+          <td>${b.expires_at || '—'}</td>
+          <td>${b.created_at || '—'}</td>
+        `;
+        body.appendChild(tr);
+      });
+      if (!items.length) body.innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>';
     }
     async function resetRaffle(){
       const res = await fetch('/admin/raffle/reset', {method:'POST', credentials:'include'});

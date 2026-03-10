@@ -1697,6 +1697,10 @@ function renderPopular(){
   popularPackages.forEach((pkg,i)=>{
     const card=el('div',{class:'pkg',role:'button',tabindex:'0','aria-label':`${pkg.title} ${pkg.price}`});
     const topChildren = [el('div',{class:'title',text:pkg.title})];
+    if (pkg.product_type === 'stars' && pkg.quantity) {
+      const perStar = getStarsRate(pkg.quantity);
+      topChildren.push(el('div',{class:'badge',text:`${perStar.toFixed(2)} ₽/⭐`}));
+    }
     if (pkg.badge) topChildren.push(el('div',{class:'badge',text:pkg.badge}));
     const top=el('div',{class:'top-row'}, topChildren);
   const bottom=el('div',{style:'display:flex;justify-content:space-between;align-items:center'},[
@@ -2245,6 +2249,10 @@ function renderGrid(gridId, packages){
     } else {
       // Обычные карточки
       const topChildren = [el('div', { class: 'title', text: pkg.title })];
+      if (pkg.product_type === 'stars' && pkg.quantity) {
+        const perStar = getStarsRate(pkg.quantity);
+        topChildren.push(el('div', { class: 'badge', text: `${perStar.toFixed(2)} ₽/⭐` }));
+      }
       if(pkg.badge) topChildren.push(el('div', { class: 'badge', text: pkg.badge }));
 
       const top = el('div', { class: 'top-row' }, topChildren);
