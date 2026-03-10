@@ -1981,6 +1981,69 @@ def _admin_panel_html(authed: bool) -> str:
   </div>
   </div>
   <script>
+    const navRoot = document.querySelector('.nav');
+    if (navRoot) {
+      function setPage(page){
+        const links = document.querySelectorAll('.nav a');
+        links.forEach(a => {
+          if (a.dataset.page === page) a.classList.add('active');
+          else a.classList.remove('active');
+        });
+        document.querySelectorAll('.card[data-page]').forEach(card => {
+          card.style.display = card.dataset.page === page ? 'block' : 'none';
+        });
+        if (page === 'dashboard') { loadToday(); loadRecent(); }
+        if (page === 'analytics') { loadAnalytics(); loadAnalyticsDaily(); }
+        if (page === 'users') { loadUserSearch(); }
+        if (page === 'promos') { loadPromos(); }
+        if (page === 'bonuses') { loadBonuses(); }
+        if (page === 'raffle') { loadRaffleSummary(); }
+        if (page === 'settings') { loadSettings(); }
+      }
+      document.querySelectorAll('.nav a').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          const page = a.dataset.page;
+          if (!page) return;
+          history.replaceState(null, '', `#${page}`);
+          setPage(page);
+        });
+      });
+      const initialPage = (location.hash || '#dashboard').replace('#','');
+      setPage(initialPage);
+      window.addEventListener('hashchange', () => {
+        const page = (location.hash || '#dashboard').replace('#','');
+        setPage(page);
+      });
+    }
+
+    function renderLineChart(containerId, points, color){
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      if (!points || points.length === 0) {
+        el.innerHTML = '<div class="muted">Нет данных</div>';
+        return;
+      }
+      const w = 600, h = 180, pad = 20;
+      const vals = points.map(p => p.y);
+      const max = Math.max(...vals, 1);
+      const min = Math.min(...vals, 0);
+      const span = max - min || 1;
+      const step = (w - pad * 2) / Math.max(1, points.length - 1);
+      let d = '';
+      points.forEach((p, i) => {
+        const x = pad + i * step;
+        const y = h - pad - ((p.y - min) / span) * (h - pad * 2);
+        d += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
+      });
+      const area = `${d} L ${pad + (points.length - 1) * step} ${h - pad} L ${pad} ${h - pad} Z`;
+      el.innerHTML = `
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <path d="${area}" fill="${color}22"></path>
+          <path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      `;
+    }
     async function requestCode(){
       const res = await fetch('/admin/otp/request', {method:'POST', credentials:'include'});
       document.getElementById('status').textContent = res.ok ? 'Code sent' : 'Failed to send';
@@ -2010,8 +2073,15 @@ def _admin_panel_html(authed: bool) -> str:
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Админка</title>
   <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0;padding:24px}
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#0e0f12;color:#e9eef7;margin:0}
     h1{margin:0 0 16px 0}
+    .layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+    .sidebar{background:#0b0d11;border-right:1px solid #1f232b;padding:18px;display:flex;flex-direction:column;gap:10px}
+    .brand{font-weight:800;font-size:16px;margin-bottom:8px}
+    .nav{display:flex;flex-direction:column;gap:6px}
+    .nav a{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;color:#c9d1e4;text-decoration:none;border:1px solid transparent}
+    .nav a.active{background:#15181d;border-color:#2a2f38;color:#fff}
+    .content{padding:24px}
     .grid{display:grid;grid-template-columns:1fr;gap:16px}
     .card{background:#15181d;border:1px solid #1f232b;border-radius:16px;padding:16px}
     .section-title{font-weight:800;margin:0 0 10px 0}
@@ -2044,28 +2114,61 @@ def _admin_panel_html(authed: bool) -> str:
     .stack{display:flex;flex-direction:column;gap:8px}
     .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#9aa3b5}
     .pill b{color:#e9eef7}
+    .chart{background:#101318;border:1px solid #212632;border-radius:12px;padding:12px}
+    .chart svg{width:100%;height:180px;display:block}
+    .chart-title{font-size:13px;color:#9aa3b5;margin-bottom:8px}
+    .chart-legend{display:flex;gap:12px;font-size:11px;color:#9aa3b5;margin-top:6px}
     pre{white-space:pre-wrap;word-break:break-word;color:#c9d1e4;font-size:13px}
   </style>
 </head>
 <body>
-  <h1>Панель администратора</h1>
-  <div class="grid">
-    <div class="card">
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">Админка</div>
+      <nav class="nav">
+        <a href="#dashboard" data-page="dashboard" class="active">Дашборд</a>
+        <a href="#analytics" data-page="analytics">Аналитика</a>
+        <a href="#users" data-page="users">Пользователи</a>
+        <a href="#promos" data-page="promos">Промокоды</a>
+        <a href="#bonuses" data-page="bonuses">Бонусы</a>
+        <a href="#raffle" data-page="raffle">Розыгрыш</a>
+        <a href="#settings" data-page="settings">Настройки</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <h1>Панель администратора</h1>
+      <div class="grid">
+    <div class="card" data-page="dashboard">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="section-title">Аудит · 24 часа</div>
         <button class="btn" onclick="loadToday()">Обновить</button>
       </div>
-      <pre id="today">Loading...</pre>
+      <pre id="today">Загрузка...</pre>
     </div>
-    <div class="card">
+    <div class="card" data-page="dashboard">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="section-title">Аудит · Последние</div>
         <button class="btn" onclick="loadRecent()">Обновить</button>
       </div>
-      <pre id="recent">Loading...</pre>
+      <pre id="recent">Загрузка...</pre>
       <div class="muted">Последние 200 оплаченных заказов на звёзды.</div>
     </div>
-    <div class="card">
+    <div class="card" data-page="analytics">
+      <div class="section-title">Графики по дням (30 дней)</div>
+      <div class="chart">
+        <div class="chart-title">Выручка, ₽</div>
+        <div id="chart-revenue"></div>
+      </div>
+      <div class="chart" style="margin-top:10px">
+        <div class="chart-title">Прибыль, ₽</div>
+        <div id="chart-profit"></div>
+      </div>
+      <div class="chart" style="margin-top:10px">
+        <div class="chart-title">Заказы, шт</div>
+        <div id="chart-orders"></div>
+      </div>
+    </div>
+    <div class="card" data-page="analytics">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="section-title">Аналитика</div>
         <button class="btn" onclick="loadAnalytics()">Обновить</button>
@@ -2134,7 +2237,27 @@ def _admin_panel_html(authed: bool) -> str:
         </table>
       </div>
     </div>
-    <div class="card">
+    <div class="card" data-page="users">
+      <div class="section-title">Поиск пользователей и прибыль</div>
+      <div class="row">
+        <div class="field">
+          <label class="muted">Поиск (id / @username)</label>
+          <input class="input" id="user-search" placeholder="683310989 или @username"/>
+        </div>
+        <div class="field">
+          <label class="muted">Период (дней)</label>
+          <input class="input" id="user-search-days" type="number" min="1" value="30"/>
+        </div>
+      </div>
+      <button class="btn" onclick="loadUserSearch()" style="margin-top:10px">Искать</button>
+      <table class="table" id="users-table" style="margin-top:12px">
+        <thead>
+          <tr><th>Пользователь</th><th>Выручка ₽</th><th>Себестоимость ₽</th><th>Прибыль ₽</th><th>Заказы</th><th>⭐</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card" data-page="promos">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="section-title">Промокоды</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -2151,7 +2274,7 @@ def _admin_panel_html(authed: bool) -> str:
         <tbody></tbody>
       </table>
     </div>
-    <div class="card">
+    <div class="card" data-page="bonuses">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div class="section-title">Бонусы</div>
         <button class="btn" onclick="loadBonuses()">Обновить</button>
@@ -2163,7 +2286,7 @@ def _admin_panel_html(authed: bool) -> str:
         <tbody></tbody>
       </table>
     </div>
-    <div class="card">
+    <div class="card" data-page="bonuses">
       <strong>Массовая выдача бонусов</strong>
       <div class="field">
         <label class="muted">User IDs (через запятую/пробел/перенос)</label>
@@ -2186,7 +2309,7 @@ def _admin_panel_html(authed: bool) -> str:
       <button class="btn" onclick="bulkBonus()" style="margin-top:10px">Выдать бонусы</button>
       <div id="bonus-bulk-status" class="muted"></div>
     </div>
-    <div class="card">
+    <div class="card" data-page="raffle">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <strong>Управление розыгрышем</strong>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -2202,7 +2325,7 @@ def _admin_panel_html(authed: bool) -> str:
       <div class="muted">Экспорт CSV — полный список участников с шансами.</div>
       <div id="raffle-status" class="muted" style="margin-top:8px;"></div>
     </div>
-    <div class="card">
+    <div class="card" data-page="settings">
       <strong>Настройки</strong>
       <div class="row">
         <div class="field">
@@ -2267,7 +2390,7 @@ def _admin_panel_html(authed: bool) -> str:
       <button class="btn" onclick="saveSettings()" style="margin-top:10px">Сохранить</button>
       <div id="settings-status" class="muted"></div>
     </div>
-    <div class="card">
+    <div class="card" data-page="promos">
       <strong>Создать промокод</strong>
       <div class="row">
         <div class="field">
@@ -2292,7 +2415,7 @@ def _admin_panel_html(authed: bool) -> str:
       <button class="btn" onclick="createPromo()" style="margin-top:10px">Создать</button>
       <div id="promo-status" class="muted"></div>
     </div>
-    <div class="card">
+    <div class="card" data-page="bonuses">
       <strong>Создать бонус-ссылку</strong>
       <div class="row">
         <div class="field">
@@ -2317,6 +2440,7 @@ def _admin_panel_html(authed: bool) -> str:
       <button class="btn" onclick="createBonus()" style="margin-top:10px">Создать ссылку</button>
       <div id="bonus-status" class="muted"></div>
     </div>
+    </main>
   </div>
   <script>
     async function loadToday(){
@@ -2445,6 +2569,42 @@ def _admin_panel_html(authed: bool) -> str:
           topTbody.innerHTML = '<tr><td colspan="2" class="muted">Нет данных</td></tr>';
         }
       }
+    }
+    async function loadAnalyticsDaily(){
+      const res = await fetch('/admin/analytics/daily?days=30', {credentials:'include'});
+      const data = await res.json();
+      if(!res.ok || !data.items){ 
+        renderLineChart('chart-revenue', [], '#2a8bf2');
+        renderLineChart('chart-profit', [], '#22c55e');
+        renderLineChart('chart-orders', [], '#f59e0b');
+        return;
+      }
+      const revenue = data.items.map((d,i)=>({x:i, y:Number(d.revenue||0)}));
+      const profit = data.items.map((d,i)=>({x:i, y:Number(d.profit||0)}));
+      const orders = data.items.map((d,i)=>({x:i, y:Number(d.orders||0)}));
+      renderLineChart('chart-revenue', revenue, '#2a8bf2');
+      renderLineChart('chart-profit', profit, '#22c55e');
+      renderLineChart('chart-orders', orders, '#f59e0b');
+    }
+
+    async function loadUserSearch(){
+      const q = (document.getElementById('user-search')?.value || '').trim();
+      const days = Number(document.getElementById('user-search-days')?.value || 30) || 30;
+      const qs = `?days=${encodeURIComponent(days)}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+      const res = await fetch(`/admin/users/search${qs}`, {credentials:'include'});
+      const data = await res.json();
+      const body = document.querySelector('#users-table tbody');
+      if (!body) return;
+      if(!res.ok){ body.innerHTML = '<tr><td colspan="6" class="muted">Не удалось</td></tr>'; return; }
+      const items = data.items || [];
+      body.innerHTML = '';
+      items.forEach(item => {
+        const name = item.display || `id ${item.user_id}`;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${name}</td><td>${item.revenue}</td><td>${item.cost}</td><td>${item.profit}</td><td>${item.orders}</td><td>${item.stars}</td>`;
+        body.appendChild(tr);
+      });
+      if (!items.length) body.innerHTML = '<tr><td colspan="6" class="muted">Нет данных</td></tr>';
     }
     async function loadPromos(filter){
       const qs = filter ? `?filter=${encodeURIComponent(filter)}` : '';
@@ -2608,12 +2768,6 @@ def _admin_panel_html(authed: bool) -> str:
         ? `Создано: ${data.created || 0}`
         : 'Не удалось';
     }
-    loadToday();
-    loadRecent();
-    loadAnalytics();
-    loadPromos();
-    loadBonuses();
-    loadSettings();
   </script>
 </body>
 </html>
@@ -3189,6 +3343,174 @@ async def admin_analytics(request: Request):
             "provider_conversion_pct": provider_conversion,
             "top_users_by_revenue": top_items,
         }
+    finally:
+        db.close()
+
+
+@app.get("/admin/analytics/daily")
+async def admin_analytics_daily(request: Request, days: int = 30):
+    _admin_require(request)
+    days = max(1, min(days, 120))
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        start_msk = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_msk = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = start_msk.astimezone(timezone.utc)
+        end = end_msk.astimezone(timezone.utc)
+
+        orders = db.query(Order).filter(
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end,
+        ).all()
+
+        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in orders)
+        usdtrub = None
+        if need_cost_calc:
+            usdtrub = await get_moex_usdrub_rate() if STAR_COST_RATE_SOURCE == "moex" else await get_usdtrub_rate()
+
+        daily = {}
+        for o in orders:
+            key = o.timestamp.astimezone(MSK).date().isoformat()
+            if key not in daily:
+                daily[key] = {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0}
+            revenue = _round_money(o.amount_rub) or 0
+            cost = o.cost_rub
+            profit = o.profit_rub
+            if (cost is None or profit is None) and usdtrub is not None:
+                total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
+                if total_stars > 0:
+                    cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
+                    cost = _round_money(cost_usd * usdtrub) or 0
+                    profit = _round_money(revenue - cost) or 0
+                    o.cost_rub = cost
+                    o.profit_rub = profit
+                    o.cost_per_star = _round_money(cost / total_stars) if total_stars else 0
+                    o.usdtrub_rate = _round_money(usdtrub) or 0
+            daily[key]["revenue"] += revenue
+            daily[key]["cost"] += cost or 0
+            daily[key]["profit"] += profit or 0
+            daily[key]["orders"] += 1
+
+        if need_cost_calc:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        items = []
+        for i in range(days):
+            day = (start_msk.date() + timedelta(days=i)).isoformat()
+            row = daily.get(day, {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0})
+            items.append({
+                "date": day,
+                "revenue": round(row["revenue"], 2),
+                "cost": round(row["cost"], 2),
+                "profit": round(row["profit"], 2),
+                "orders": row["orders"],
+            })
+        return {"items": items}
+    finally:
+        db.close()
+
+
+@app.get("/admin/users/search")
+async def admin_users_search(request: Request, q: str | None = Query(default=None), days: int = 30, limit: int = 50):
+    _admin_require(request)
+    days = max(1, min(days, 365))
+    limit = max(1, min(limit, 200))
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        start_msk = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_msk = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = start_msk.astimezone(timezone.utc)
+        end = end_msk.astimezone(timezone.utc)
+
+        ids = set()
+        query = (q or "").strip()
+        if query:
+            qnorm = query[1:] if query.startswith("@") else query
+            if qnorm.isdigit():
+                ids.add(qnorm)
+            users = db.query(User).filter(
+                or_(
+                    User.user_id == qnorm,
+                    User.username.ilike(f"%{qnorm}%"),
+                    User.full_name.ilike(f"%{qnorm}%"),
+                )
+            ).all()
+            for u in users:
+                ids.add(u.user_id)
+            if not ids:
+                return {"items": []}
+
+        q_orders = db.query(Order).filter(
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end,
+        )
+        if ids:
+            q_orders = q_orders.filter(Order.user_id.in_(list(ids)))
+        orders = q_orders.all()
+
+        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in orders)
+        usdtrub = None
+        if need_cost_calc:
+            usdtrub = await get_moex_usdrub_rate() if STAR_COST_RATE_SOURCE == "moex" else await get_usdtrub_rate()
+
+        agg = {}
+        for o in orders:
+            uid = o.user_id
+            if uid not in agg:
+                agg[uid] = {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0, "stars": 0}
+            revenue = _round_money(o.amount_rub) or 0
+            cost = o.cost_rub
+            profit = o.profit_rub
+            if (cost is None or profit is None) and usdtrub is not None:
+                total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
+                if total_stars > 0:
+                    cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
+                    cost = _round_money(cost_usd * usdtrub) or 0
+                    profit = _round_money(revenue - cost) or 0
+                    o.cost_rub = cost
+                    o.profit_rub = profit
+                    o.cost_per_star = _round_money(cost / total_stars) if total_stars else 0
+                    o.usdtrub_rate = _round_money(usdtrub) or 0
+            agg[uid]["revenue"] += revenue
+            agg[uid]["cost"] += cost or 0
+            agg[uid]["profit"] += profit or 0
+            agg[uid]["orders"] += 1
+            agg[uid]["stars"] += int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
+
+        if need_cost_calc:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        users = db.query(User).filter(User.user_id.in_(list(agg.keys()))).all() if agg else []
+        user_map = {}
+        for u in users:
+            if u.username:
+                user_map[u.user_id] = f"@{u.username}"
+            elif u.full_name:
+                user_map[u.user_id] = u.full_name
+
+        items = []
+        for uid, row in agg.items():
+            items.append({
+                "user_id": uid,
+                "display": user_map.get(uid),
+                "revenue": round(row["revenue"], 2),
+                "cost": round(row["cost"], 2),
+                "profit": round(row["profit"], 2),
+                "orders": row["orders"],
+                "stars": row["stars"],
+            })
+        items.sort(key=lambda x: x["profit"], reverse=True)
+        return {"items": items[:limit]}
     finally:
         db.close()
 
