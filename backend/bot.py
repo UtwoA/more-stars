@@ -121,7 +121,16 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
         if str(message.from_user.id) not in admin_ids:
             return
         from app.admin_reports import build_admin_report
-        text = await build_admin_report()
+        parts = (message.text or "").split(maxsplit=1)
+        target = None
+        if len(parts) > 1:
+            raw = parts[1].strip()
+            try:
+                target = datetime.strptime(raw, "%d/%m/%y").replace(tzinfo=now_msk().tzinfo)
+            except ValueError:
+                await message.answer("Формат даты: /report DD/MM/YY")
+                return
+        text = await build_admin_report(target)
         await message.answer(text)
 
     @dp.message(Command("promo"))

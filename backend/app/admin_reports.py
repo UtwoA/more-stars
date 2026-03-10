@@ -12,12 +12,17 @@ MSK = ZoneInfo("Europe/Moscow")
 MINI_APP_URL = os.getenv("MINI_APP_URL")
 
 
-async def build_admin_report() -> str:
+async def build_admin_report(target_date: datetime | None = None) -> str:
     db = SessionLocal()
     try:
         now = now_msk()
+        if target_date is None:
+            target_date = now
         start_msk = datetime.combine(now.date(), time(0, 0), tzinfo=MSK)
         end_msk = start_msk + timedelta(days=1)
+        if target_date:
+            start_msk = datetime.combine(target_date.date(), time(0, 0), tzinfo=MSK)
+            end_msk = start_msk + timedelta(days=1)
         start = start_msk.astimezone(timezone.utc)
         end = end_msk.astimezone(timezone.utc)
 
@@ -65,21 +70,21 @@ async def build_admin_report() -> str:
                 app_status = "down"
 
         lines = [
-            "📊 Admin report",
-            f"date={start_msk.date().isoformat()}",
-            f"paid_orders={len(paid_orders)}",
-            f"paid_total_rub={total_paid:.2f}",
-            f"avg_check_rub={avg_check:.2f}",
-            f"stars_total={int(total_stars)} (+{int(total_bonus)} bonus)",
-            f"failed_orders={failed_orders}",
-            f"platega_failures={platega_failures}",
-            f"by_provider={by_provider}",
-            f"mini_app={app_status}",
+            "📊 Ежедневный отчёт",
+            f"Дата: {start_msk.date().strftime('%d.%m.%Y')}",
+            f"Оплаченных заказов: {len(paid_orders)}",
+            f"Сумма оплат: {total_paid:.2f} ₽",
+            f"Средний чек: {avg_check:.2f} ₽",
+            f"Звёзд куплено: {int(total_stars)} (+{int(total_bonus)} бонус)",
+            f"Неудачных заказов: {failed_orders}",
+            f"Ошибок Platega: {platega_failures}",
+            f"По провайдерам: {by_provider}",
+            f"Статус мини‑приложения: {app_status}",
         ]
         if last:
             lines.append(
-                f"last_order={last.order_id} status={last.status} "
-                f"amount={last.amount_rub or 0:.2f} provider={last.payment_provider}"
+                f"Последний заказ: {last.order_id} | {last.status} | "
+                f"{last.amount_rub or 0:.2f} ₽ | {last.payment_provider}"
             )
         return "\n".join(lines)
     finally:
