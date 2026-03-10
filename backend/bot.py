@@ -116,6 +116,14 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
         text = "Покупки за 24 часа:\n" + "\n".join(lines)
         await message.answer(text)
 
+    @dp.message(Command("report"))
+    async def cmd_report(message: Message):
+        if str(message.from_user.id) not in admin_ids:
+            return
+        from app.admin_reports import build_admin_report
+        text = await build_admin_report()
+        await message.answer(text)
+
     @dp.message(Command("promo"))
     async def cmd_promo(message: Message):
         if str(message.from_user.id) not in admin_ids:
