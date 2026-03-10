@@ -3179,8 +3179,7 @@ async def admin_audit_recent(request: Request, limit: int = 200):
     return {"items": items}
 
 
-@app.get("/admin/analytics")
-async def admin_analytics(request: Request):
+
     _admin_require(request)
     db = SessionLocal()
     try:
@@ -3366,9 +3365,305 @@ async def admin_analytics(request: Request):
     finally:
         db.close()
 
+def _calc_order_unit_economics(order, usdtrub: float):
+    paid_stars = int(order.quantity or 0)
+    bonus_stars = int(order.bonus_stars_applied or 0)
+    revenue = _round_money(order.amount_rub) or 0
+
+    if paid_stars <= 0:
+        return {
+            "paid_stars": paid_stars,
+            "bonus_stars": bonus_stars,
+            "revenue": revenue,
+            "cost_rub": 0.0,
+            "profit_rub": revenue,
+            "bonus_cost_rub": 0.0,
+            "cost_per_star": 0.0,
+        }
+
+    cost_usd = paid_stars * (STAR_COST_USD_PER_100 / 100.0)
+    cost_rub = _round_money(cost_usd * usdtrub) or 0
+    bonus_cost_rub = _round_money(bonus_stars * (STAR_COST_USD_PER_100 / 100.0) * usdtrub) or 0
+    profit_rub = _round_money(revenue - cost_rub) or 0
+    cost_per_star = _round_money(cost_rub / paid_stars) if paid_stars else 0
+
+    return {
+        "paid_stars": paid_stars,
+        "bonus_stars": bonus_stars,
+        "revenue": revenue,
+        "cost_rub": cost_rub,
+        "profit_rub": profit_rub,
+        "bonus_cost_rub": bonus_cost_rub,
+        "cost_per_star": cost_per_star,
+    }
+
+@app.get("/admin/analytics")
+async def admin_analytics(request: Request):
+    _admin_require(request)
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        start_msk = now - timedelta(days=30)
+        end_msk = now
+        start = start_msk.astimezone(timezone.utc)
+        end = end_msk.astimezone(timezone.utc)
+
+        created_orders = db.query(Order).filter(
+            Order.product_type == "stars",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        ).count()
+
+        paid_orders_q = db.query(Order).filter(
+            Order.product_type == "stars",
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        )
+        paid_orders = paid_orders_q.all()
+
+        failed_orders = db.query(Order).filter(
+            Order.product_type == "stars",
+            Order.status == "failed",
+            Order.timestamp >= start,
+            Order.timestamp < end
+        ).count()
+
+        paid_total = sum((o.amount_rub or 0) for o in paid_orders)
+        avg_check = paid_total / len(paid_orders) if paid_orders else 0.0
+        stars_total = sum(int(o.quantity or 0) for o in paid_orders)
+        bonus_total = sum(int(o.bonus_stars_applied or 0) for o in paid_orders)
+
+        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in paid_orders)
+        usdtrub = None
+        rate_label = None
+        if need_cost_calc:
+            if STAR_COST_RATE_SOURCE == "moex":
+                usdtrub = await get_moex_usdrub_rate()
+                rate_label = "MOEX USD/RUB"
+            else:
+                usdtrub = await get_usdtrub_rate()
+                rate_label = "Binance USDTRUB"
+
+        total_cost = 0.0
+        total_profit = 0.0
+        bonus_cost_total = 0.0
+
+        for o in paid_orders:
+            if o.cost_rub is not None and o.profit_rub is not None:
+                total_cost += o.cost_rub or 0
+                total_profit += o.profit_rub or 0
+                continue
+
+            if usdtrub is None:
+                continue
+
+            econ = _calc_order_unit_economics(o, usdtrub)
+
+            o.cost_rub = econ["cost_rub"]
+            o.profit_rub = econ["profit_rub"]
+            o.cost_per_star = econ["cost_per_star"]
+            o.usdtrub_rate = _round_money(usdtrub) or 0
+
+            total_cost += econ["cost_rub"]
+            total_profit += econ["profit_rub"]
+            bonus_cost_total += econ["bonus_cost_rub"]
+
+        if need_cost_calc:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        by_provider = {}
+        revenue_by_provider = {}
+        created_by_provider = {}
+        paid_by_provider = {}
+
+        for o in paid_orders:
+            key = o.payment_provider or "unknown"
+            by_provider[key] = by_provider.get(key, 0) + 1
+            revenue_by_provider[key] = round(revenue_by_provider.get(key, 0) + (o.amount_rub or 0), 2)
+            paid_by_provider[key] = paid_by_provider.get(key, 0) + 1
+
+        created_rows = (
+            db.query(Order.payment_provider, func.count())
+            .filter(
+                Order.product_type == "stars",
+                Order.timestamp >= start,
+                Order.timestamp < end
+            )
+            .group_by(Order.payment_provider)
+            .all()
+        )
+        for provider, cnt in created_rows:
+            key = provider or "unknown"
+            created_by_provider[key] = int(cnt)
+
+        provider_conversion = {}
+        for key, created_cnt in created_by_provider.items():
+            paid_cnt = paid_by_provider.get(key, 0)
+            provider_conversion[key] = round((paid_cnt / created_cnt * 100), 2) if created_cnt else 0.0
+
+        conversion = round((len(paid_orders) / created_orders * 100), 2) if created_orders else 0.0
+
+        opens = db.execute(
+            text("SELECT COUNT(*) FROM app_events WHERE event_type = 'open' AND created_at >= :start AND created_at < :end"),
+            {"start": start, "end": end},
+        ).scalar() or 0
+        opens_unique = db.execute(
+            text("SELECT COUNT(DISTINCT user_id) FROM app_events WHERE event_type = 'open' AND user_id IS NOT NULL AND created_at >= :start AND created_at < :end"),
+            {"start": start, "end": end},
+        ).scalar() or 0
+        selects = db.execute(
+            text("SELECT COUNT(*) FROM app_events WHERE event_type LIKE 'select_%' AND created_at >= :start AND created_at < :end"),
+            {"start": start, "end": end},
+        ).scalar() or 0
+        selects_unique = db.execute(
+            text("SELECT COUNT(DISTINCT user_id) FROM app_events WHERE event_type LIKE 'select_%' AND user_id IS NOT NULL AND created_at >= :start AND created_at < :end"),
+            {"start": start, "end": end},
+        ).scalar() or 0
+
+        paid_users_unique = db.query(func.count(func.distinct(Order.user_id))).filter(
+            Order.product_type == "stars",
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end,
+        ).scalar() or 0
+
+        open_to_select = round((selects_unique / opens_unique * 100), 2) if opens_unique else 0.0
+        select_to_paid = round((paid_users_unique / selects_unique * 100), 2) if selects_unique else 0.0
+
+        top_rows = (
+            db.query(Order.user_id, func.sum(Order.amount_rub).label("revenue"))
+            .filter(
+                Order.product_type == "stars",
+                Order.status == "paid",
+                Order.timestamp >= start,
+                Order.timestamp < end,
+            )
+            .group_by(Order.user_id)
+            .order_by(desc("revenue"))
+            .limit(10)
+            .all()
+        )
+
+        user_ids = [r.user_id for r in top_rows]
+        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
+        user_map = {}
+        for u in users:
+            if u.username:
+                user_map[u.user_id] = f"@{u.username}"
+            elif u.full_name:
+                user_map[u.user_id] = u.full_name
+
+        top_items = []
+        for r in top_rows:
+            top_items.append({
+                "user_id": r.user_id,
+                "display": user_map.get(r.user_id),
+                "revenue": round(float(r.revenue or 0), 2),
+            })
+
+        return {
+            "opens": int(opens),
+            "opens_unique": int(opens_unique),
+            "selects": int(selects),
+            "selects_unique": int(selects_unique),
+            "created_orders": int(created_orders),
+            "paid_orders": len(paid_orders),
+            "failed_orders": int(failed_orders),
+            "conversion_pct": conversion,
+            "conversion_open_to_select_pct": open_to_select,
+            "conversion_select_to_paid_pct": select_to_paid,
+            "paid_total_rub": round(paid_total, 2),
+            "cost_total_rub": round(total_cost, 2),
+            "profit_total_rub": round(total_profit, 2),
+            "bonus_cost_total_rub": round(bonus_cost_total, 2),
+            "cost_rate_label": rate_label,
+            "usdtrub_rate": round(float(usdtrub), 2) if usdtrub is not None else None,
+            "avg_check_rub": round(avg_check, 2),
+            "stars_total": int(stars_total),
+            "bonus_total": int(bonus_total),
+            "by_provider": by_provider,
+            "revenue_by_provider": revenue_by_provider,
+            "provider_conversion_pct": provider_conversion,
+            "top_users_by_revenue": top_items,
+        }
+    finally:
+        db.close()
+
 
 @app.get("/admin/analytics/daily")
 async def admin_analytics_daily(request: Request, days: int = 30):
+    _admin_require(request)
+    days = max(1, min(days, 120))
+    db = SessionLocal()
+    try:
+        now = now_msk()
+        start_msk = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_msk = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = start_msk.astimezone(timezone.utc)
+        end = end_msk.astimezone(timezone.utc)
+
+        orders = db.query(Order).filter(
+            Order.product_type == "stars",
+            Order.status == "paid",
+            Order.timestamp >= start,
+            Order.timestamp < end,
+        ).all()
+
+        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in orders)
+        usdtrub = None
+        if need_cost_calc:
+            usdtrub = await get_moex_usdrub_rate() if STAR_COST_RATE_SOURCE == "moex" else await get_usdtrub_rate()
+
+        daily = {}
+        for o in orders:
+            key = o.timestamp.astimezone(MSK).date().isoformat()
+            if key not in daily:
+                daily[key] = {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0}
+
+            revenue = _round_money(o.amount_rub) or 0
+            cost = o.cost_rub
+            profit = o.profit_rub
+
+            if (cost is None or profit is None) and usdtrub is not None:
+                econ = _calc_order_unit_economics(o, usdtrub)
+                cost = econ["cost_rub"]
+                profit = econ["profit_rub"]
+
+                o.cost_rub = cost
+                o.profit_rub = profit
+                o.cost_per_star = econ["cost_per_star"]
+                o.usdtrub_rate = _round_money(usdtrub) or 0
+
+            daily[key]["revenue"] += revenue
+            daily[key]["cost"] += cost or 0
+            daily[key]["profit"] += profit or 0
+            daily[key]["orders"] += 1
+
+        if need_cost_calc:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        items = []
+        for i in range(days):
+            day = (start_msk.date() + timedelta(days=i)).isoformat()
+            row = daily.get(day, {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0})
+            items.append({
+                "date": day,
+                "revenue": round(row["revenue"], 2),
+                "cost": round(row["cost"], 2),
+                "profit": round(row["profit"], 2),
+                "orders": row["orders"],
+            })
+
+        return {"items": items}
+    finally:
+        db.close() 
     _admin_require(request)
     days = max(1, min(days, 120))
     db = SessionLocal()
@@ -3467,6 +3762,7 @@ async def admin_users_search(request: Request, q: str | None = Query(default=Non
                 return {"items": []}
 
         q_orders = db.query(Order).filter(
+            Order.product_type == "stars",
             Order.status == "paid",
             Order.timestamp >= start,
             Order.timestamp < end,
@@ -3484,25 +3780,35 @@ async def admin_users_search(request: Request, q: str | None = Query(default=Non
         for o in orders:
             uid = o.user_id
             if uid not in agg:
-                agg[uid] = {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0, "stars": 0}
+                agg[uid] = {
+                    "revenue": 0.0,
+                    "cost": 0.0,
+                    "profit": 0.0,
+                    "orders": 0,
+                    "stars": 0,
+                    "bonus_stars": 0,
+                }
+
             revenue = _round_money(o.amount_rub) or 0
             cost = o.cost_rub
             profit = o.profit_rub
+
             if (cost is None or profit is None) and usdtrub is not None:
-                total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
-                if total_stars > 0:
-                    cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
-                    cost = _round_money(cost_usd * usdtrub) or 0
-                    profit = _round_money(revenue - cost) or 0
-                    o.cost_rub = cost
-                    o.profit_rub = profit
-                    o.cost_per_star = _round_money(cost / total_stars) if total_stars else 0
-                    o.usdtrub_rate = _round_money(usdtrub) or 0
+                econ = _calc_order_unit_economics(o, usdtrub)
+                cost = econ["cost_rub"]
+                profit = econ["profit_rub"]
+
+                o.cost_rub = cost
+                o.profit_rub = profit
+                o.cost_per_star = econ["cost_per_star"]
+                o.usdtrub_rate = _round_money(usdtrub) or 0
+
             agg[uid]["revenue"] += revenue
             agg[uid]["cost"] += cost or 0
             agg[uid]["profit"] += profit or 0
             agg[uid]["orders"] += 1
-            agg[uid]["stars"] += int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
+            agg[uid]["stars"] += int(o.quantity or 0)
+            agg[uid]["bonus_stars"] += int(o.bonus_stars_applied or 0)
 
         if need_cost_calc:
             try:
@@ -3528,12 +3834,13 @@ async def admin_users_search(request: Request, q: str | None = Query(default=Non
                 "profit": round(row["profit"], 2),
                 "orders": row["orders"],
                 "stars": row["stars"],
+                "bonus_stars": row["bonus_stars"],
             })
+
         items.sort(key=lambda x: x["profit"], reverse=True)
         return {"items": items[:limit]}
     finally:
         db.close()
-
 
 @app.get("/admin/promos")
 async def admin_promos(request: Request, filter: str | None = Query(default=None)):
