@@ -14,11 +14,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is not set")
+_bot: Bot | None = None
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+
+def get_bot() -> Bot:
+    global _bot
+    if _bot is not None:
+        return _bot
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise RuntimeError("BOT_TOKEN is not set")
+    _bot = Bot(token=token, default=DefaultBotProperties(parse_mode="HTML"))
+    return _bot
 
 
 _pending_broadcast: dict[str, str | None] = {}
@@ -27,6 +34,7 @@ _pending_broadcast: dict[str, str | None] = {}
 def build_admin_dispatcher(admin_chat_ids: set[str]):
     dp = Dispatcher()
     admin_ids = {str(item) for item in admin_chat_ids if item}
+    bot = get_bot()
 
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
@@ -480,6 +488,7 @@ async def _claim_bonus(message: Message, token: str) -> None:
     )
 
 async def send_user_message(chat_id: int, product_name: str):
+    bot = get_bot()
     link = "https://t.me/more_stars_bot/app?startapp=1"
     text = (
         f"🎉 Оплата за <b>{product_name}</b> прошла успешно!\n\n"
@@ -489,4 +498,5 @@ async def send_user_message(chat_id: int, product_name: str):
 
 
 async def send_admin_message(chat_id: int, text: str):
+    bot = get_bot()
     await bot.send_message(chat_id=chat_id, text=text)

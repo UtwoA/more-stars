@@ -16,18 +16,69 @@ import re
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Query, Header, HTTPException
 from fastapi.responses import PlainTextResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel, root_validator
 from sqlalchemy import text, and_, or_, func, desc
 from zoneinfo import ZoneInfo
 
+from .config import (
+    ADMIN_CHAT_IDS,
+    ADMIN_OTP_TTL_MIN,
+    ADMIN_REPORT_TIME,
+    API_AUTH_KEY,
+    BOT_TOKEN,
+    MSK,
+    REFERRAL_PERCENT,
+    STAR_COST_RATE_SOURCE,
+    STAR_COST_USD_PER_100,
+)
+from .admin_notify import notify_admin
+from .audit import (
+    format_audit_line,
+    format_audit_line_with_user,
+    format_payment_method,
+)
+from .api.admin import router as admin_router
+from .api.public import router as public_router
+from . import admin_auth
 from .crypto_pay import verify_signature
 from .crypto import convert_rub_to_crypto, convert_to_rub, get_usdtrub_rate, get_moex_usdrub_rate
 from .database import SessionLocal, Base, engine
+from .db_init import init_schema
+from .money import round_money, to_nano
+from .og_meta import parse_og_meta
+from .bonus_service import bonus_summary
 from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting
+from .promo_service import (
+    get_active_reservation,
+    load_promo,
+    promo_used_by_user,
+    reserve_promo,
+)
+from .raffle_utils import next_draw_dates, raffle_period
+from .rate_limit import RateLimiter
+from .schemas import (
+    AdminBonusBulkPayload,
+    AdminBonusClaimPayload,
+    AdminOtpVerify,
+    AdminPromoPayload,
+    AdminSettingsPayload,
+    AnalyticsEventPayload,
+    CryptoOrderCreate,
+    OrderCreateBase,
+    PlategaOrderCreate,
+    RobokassaOrderCreate,
+    TonConnectOrderCreate,
+)
+from .security import constant_time_eq
+from .telegram_initdata import (
+    extract_user_id,
+    touch_user_from_initdata,
+    verify_telegram_init_data,
+)
+from .settings_store import get_report_time, get_setting, get_setting_float, get_setting_int
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
-from bot import send_user_message, send_admin_message, build_admin_dispatcher, bot
+from bot import send_user_message, send_admin_message, build_admin_dispatcher, get_bot
 
 
 load_dotenv()
@@ -46,277 +97,22 @@ PLATEGA_WEBHOOK_IP_ALLOWLIST = {
     ip.strip() for ip in (os.getenv("PLATEGA_WEBHOOK_IP_ALLOWLIST") or "").split(",") if ip.strip()
 }
 PLATEGA_WEBHOOK_TOKEN = os.getenv("PLATEGA_WEBHOOK_TOKEN")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_IDS = {
-    item.strip() for item in (os.getenv("ADMIN_CHAT_ID") or "").split(",") if item.strip()
-}
 MINI_APP_URL = os.getenv("MINI_APP_URL")
-REFERRAL_PERCENT = int(os.getenv("REFERRAL_PERCENT", "7"))
 BONUS_MIN_STARS = int(os.getenv("BONUS_MIN_STARS", "50"))
-ADMIN_REPORT_TIME = os.getenv("ADMIN_REPORT_TIME", "00:00")
-STAR_COST_USD_PER_100 = float(os.getenv("STAR_COST_USD_PER_100", "1.5"))
-STAR_COST_RATE_SOURCE = os.getenv("STAR_COST_RATE_SOURCE", "moex").lower()
 TONCENTER_API_KEY = os.getenv("TONCENTER_API_KEY")
 TONCENTER_BASE_URL = os.getenv("TONCENTER_BASE_URL") or "https://toncenter.com"
 TONCONNECT_WALLET_ADDRESS = os.getenv("TONCONNECT_WALLET_ADDRESS")
-
-API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
 ALLOW_UNVERIFIED_INITDATA = os.getenv("ALLOW_UNVERIFIED_INITDATA", "false").lower() in ("1", "true", "yes")
-ADMIN_OTP_TTL_MIN = int(os.getenv("ADMIN_OTP_TTL_MIN", "5"))
 ADMIN_OTP_SECRET = os.getenv("ADMIN_OTP_SECRET") or API_AUTH_KEY or "change-me"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
 app = FastAPI()
-Base.metadata.create_all(bind=engine)
-with engine.begin() as conn:
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_transaction_id VARCHAR"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_status VARCHAR"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_in_progress BOOLEAN"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_attempts INTEGER"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS fragment_last_error VARCHAR"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_code VARCHAR"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_percent INTEGER"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS promo_redeemed BOOLEAN"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS amount_rub_original FLOAT"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_stars_applied INTEGER DEFAULT 0"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_grant_id INTEGER"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_username VARCHAR"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount FLOAT"))
-    conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount_nano VARCHAR"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR"))
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR"))
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS admin_settings (
-                key VARCHAR PRIMARY KEY,
-                value VARCHAR NOT NULL,
-                updated_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS payment_transactions (
-                id SERIAL PRIMARY KEY,
-                order_id VARCHAR NOT NULL,
-                provider VARCHAR NOT NULL,
-                provider_txn_id VARCHAR,
-                status VARCHAR,
-                amount FLOAT,
-                currency VARCHAR,
-                raw_response TEXT,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS app_events (
-                id SERIAL PRIMARY KEY,
-                event_type VARCHAR NOT NULL,
-                user_id VARCHAR,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                user_id VARCHAR PRIMARY KEY,
-                referrer_id VARCHAR,
-                referral_balance_stars INTEGER DEFAULT 0,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS bonus_grants (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR NOT NULL,
-                stars INTEGER NOT NULL,
-                status VARCHAR DEFAULT 'active',
-                source VARCHAR,
-                expires_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ DEFAULT now(),
-                consumed_at TIMESTAMPTZ,
-                consumed_order_id VARCHAR
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS bonus_claims (
-                id SERIAL PRIMARY KEY,
-                token VARCHAR UNIQUE,
-                stars INTEGER NOT NULL,
-                status VARCHAR DEFAULT 'active',
-                source VARCHAR,
-                max_uses INTEGER DEFAULT 1,
-                uses INTEGER DEFAULT 0,
-                expires_at TIMESTAMPTZ,
-                created_at TIMESTAMPTZ DEFAULT now(),
-                claimed_user_id VARCHAR,
-                claimed_at TIMESTAMPTZ
-            )
-            """
-        )
-    )
-    conn.execute(text("ALTER TABLE bonus_claims ADD COLUMN IF NOT EXISTS max_uses INTEGER DEFAULT 1"))
-    conn.execute(text("ALTER TABLE bonus_claims ADD COLUMN IF NOT EXISTS uses INTEGER DEFAULT 0"))
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS bonus_claim_redemptions (
-                id SERIAL PRIMARY KEY,
-                claim_id INTEGER NOT NULL,
-                user_id VARCHAR NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS promo_codes (
-                code VARCHAR PRIMARY KEY,
-                percent INTEGER NOT NULL,
-                max_uses INTEGER,
-                uses INTEGER DEFAULT 0,
-                active BOOLEAN DEFAULT TRUE,
-                expires_at TIMESTAMPTZ
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS promo_redemptions (
-                id SERIAL PRIMARY KEY,
-                code VARCHAR,
-                user_id VARCHAR,
-                order_id VARCHAR,
-                percent INTEGER,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS promo_reservations (
-                id SERIAL PRIMARY KEY,
-                code VARCHAR,
-                user_id VARCHAR,
-                percent INTEGER,
-                order_id VARCHAR,
-                expires_at TIMESTAMPTZ NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS referral_earnings (
-                id SERIAL PRIMARY KEY,
-                referrer_id VARCHAR,
-                referred_user_id VARCHAR,
-                order_id VARCHAR,
-                stars INTEGER,
-                created_at TIMESTAMPTZ DEFAULT now()
-            )
-            """
-        )
-    )
-
-MSK = ZoneInfo("Europe/Moscow")
+app.include_router(admin_router)
+app.include_router(public_router)
 _last_app_up: bool | None = None
-
-
-class OrderCreateBase(BaseModel):
-    user_id: str
-    recipient: str
-    product_type: str
-    quantity: int | None = None
-    months: int | None = None
-    amount: float | None = None
-    amount_rub: float
-
-    @root_validator(skip_on_failure=True)
-    def validate_product_fields(cls, values):
-        product_type = (values.get("product_type") or "").lower()
-        values["product_type"] = product_type
-
-        quantity = values.get("quantity")
-        months = values.get("months")
-        amount = values.get("amount")
-        recipient = (values.get("recipient") or "").strip()
-
-        if product_type == "stars":
-            if not quantity:
-                raise ValueError("quantity is required for stars")
-        elif product_type == "premium":
-            if not months:
-                raise ValueError("months is required for premium")
-        elif product_type == "ads":
-            if amount is None:
-                raise ValueError("amount is required for ads")
-        else:
-            raise ValueError("product_type must be one of: stars, premium, ads")
-
-        if recipient not in ("self", "@unknown"):
-            if not recipient.startswith("@"):
-                raise ValueError("recipient must start with @")
-            handle = recipient[1:]
-            if not handle or len(handle) < 5 or len(handle) > 32:
-                raise ValueError("recipient username length is invalid")
-            if not handle.replace("_", "").isalnum():
-                raise ValueError("recipient username contains invalid characters")
-
-        user_id = values.get("user_id")
-        if not user_id or not str(user_id).isdigit():
-            raise ValueError("user_id must be numeric")
-
-        return values
-
-
-class CryptoOrderCreate(OrderCreateBase):
-    currency: str  # TON / USDT
-    promo_code: str | None = None
-
-
-class RobokassaOrderCreate(OrderCreateBase):
-    pass
-
-
-class PlategaOrderCreate(OrderCreateBase):
-    payment_method: int | None = None
-    promo_code: str | None = None
-
-
-class TonConnectOrderCreate(OrderCreateBase):
-    promo_code: str | None = None
 
 
 def _product_label(order: Order) -> str:
@@ -333,236 +129,55 @@ def _product_label(order: Order) -> str:
 
 
 def _constant_time_eq(a: str, b: str) -> bool:
-    return hmac.compare_digest(a.encode(), b.encode())
+    return constant_time_eq(a, b)
 
 
 def _verify_telegram_init_data(init_data: str) -> bool:
-    if not BOT_TOKEN:
-        return False
-    parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-    hash_value = parsed.pop("hash", "")
-    if not hash_value:
-        return False
-
-    data_check = "\n".join(f"{k}={parsed[k]}" for k in sorted(parsed))
-
-    def _verify_with_secret(secret_key: bytes) -> bool:
-        h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
-        return _constant_time_eq(h, hash_value)
-
-    webapp_secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    if _verify_with_secret(webapp_secret):
-        return True
-
-    legacy_secret = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    return _verify_with_secret(legacy_secret)
-
-
-def _extract_user_fields(init_data: str | None) -> tuple[str | None, str | None, str | None]:
-    if not init_data:
-        return None, None, None
-    try:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-        user_raw = parsed.get("user")
-        if not user_raw:
-            return None, None, None
-        user = json.loads(unquote_plus(user_raw))
-        username = (user.get("username") or "").strip() or None
-        first = (user.get("first_name") or "").strip()
-        last = (user.get("last_name") or "").strip()
-        full = " ".join(part for part in [first, last] if part).strip() or None
-        display = f"@{username}" if username else full
-        return username, full, display
-    except Exception:
-        return None, None, None
+    return verify_telegram_init_data(init_data, bot_token=BOT_TOKEN)
 
 
 def _extract_user_id(init_data: str | None) -> str | None:
-    if not init_data:
-        return None
-    try:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-        user_raw = parsed.get("user")
-        if not user_raw:
-            return None
-        user = json.loads(unquote_plus(user_raw))
-        uid = user.get("id")
-        return str(uid) if uid is not None else None
-    except Exception:
-        return None
-
-
-def _extract_referrer_id(init_data: str | None) -> str | None:
-    if not init_data:
-        return None
-    try:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-        start_param = (parsed.get("start_param") or "").strip()
-        if not start_param:
-            return None
-        if start_param.startswith("ref_"):
-            start_param = start_param.replace("ref_", "", 1)
-        if start_param.isdigit():
-            return start_param
-    except Exception:
-        return None
-    return None
+    return extract_user_id(init_data)
 
 
 def _touch_user_from_initdata(db, user_id: str, init_data: str | None) -> str | None:
-    username, full_name, display = _extract_user_fields(init_data)
-    referrer_id = _extract_referrer_id(init_data)
-    if not username and not full_name:
-        return display
-    user = db.query(User).filter(User.user_id == user_id).first()
-    if not user:
-        user = User(user_id=user_id)
-        db.add(user)
-    if username:
-        user.username = username
-    if full_name:
-        user.full_name = full_name
-    if referrer_id and referrer_id != user_id and not user.referrer_id:
-        user.referrer_id = referrer_id
-    db.commit()
-    return display
+    return touch_user_from_initdata(db, user_id=user_id, init_data=init_data, user_model=User)
 
 
 def _get_setting(db, key: str, default: str) -> str:
-    row = db.query(AdminSetting).filter(AdminSetting.key == key).first()
-    if row and row.value is not None:
-        return row.value
-    return default
+    return get_setting(db, key, default)
 
 
 def _get_setting_float(db, key: str, default: float) -> float:
-    raw = _get_setting(db, key, str(default))
-    try:
-        return float(raw)
-    except ValueError:
-        return default
+    return get_setting_float(db, key, default)
 
 
 def _get_setting_int(db, key: str, default: int) -> int:
-    raw = _get_setting(db, key, str(default))
-    try:
-        return int(raw)
-    except ValueError:
-        return default
+    return get_setting_int(db, key, default)
 
 
 def _get_report_time(db) -> time:
-    raw = _get_setting(db, "ADMIN_REPORT_TIME", ADMIN_REPORT_TIME)
-    try:
-        parts = raw.split(":")
-        if len(parts) != 2:
-            raise ValueError("invalid")
-        hour = int(parts[0])
-        minute = int(parts[1])
-        return time(hour=hour, minute=minute)
-    except Exception:
-        return time(0, 0)
+    return get_report_time(db)
 
 
 def _round_money(value: float | None) -> float | None:
-    if value is None:
-        return None
-    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return round_money(value)
 
 
 def _parse_og_meta(html: str) -> dict:
-    def _find(prop: str) -> str | None:
-        pattern = re.compile(rf'<meta[^>]+property=["\']{prop}["\'][^>]+content=["\']([^"\']+)["\']', re.IGNORECASE)
-        match = pattern.search(html)
-        return match.group(1).strip() if match else None
-    return {
-        "title": _find("og:title"),
-        "image": _find("og:image"),
-        "description": _find("og:description"),
-    }
+    return parse_og_meta(html)
 
 
 def _next_draw_dates(now: datetime) -> list[datetime]:
-    year = now.year
-    month = now.month
-    day = now.day
-
-    def _safe_date(y: int, m: int, d: int) -> datetime:
-        return datetime(y, m, d, 0, 0, 0, tzinfo=now.tzinfo)
-
-    if day <= 15:
-        return [_safe_date(year, month, 15), _safe_date(year, month, 30)]
-    if day <= 30:
-        next_month = month + 1 if month < 12 else 1
-        next_year = year if month < 12 else year + 1
-        return [_safe_date(year, month, 30), _safe_date(next_year, next_month, 15)]
-    next_month = month + 1 if month < 12 else 1
-    next_year = year if month < 12 else year + 1
-    return [_safe_date(next_year, next_month, 15), _safe_date(next_year, next_month, 30)]
+    return next_draw_dates(now)
 
 
 def _raffle_period(now: datetime) -> tuple[datetime, datetime]:
-    year = now.year
-    month = now.month
-    if now.day <= 15:
-        start = datetime(year, month, 1, 0, 0, 0, tzinfo=now.tzinfo)
-        end = datetime(year, month, 16, 0, 0, 0, tzinfo=now.tzinfo)
-    else:
-        start = datetime(year, month, 16, 0, 0, 0, tzinfo=now.tzinfo)
-        next_month = month + 1 if month < 12 else 1
-        next_year = year if month < 12 else year + 1
-        end = datetime(next_year, next_month, 1, 0, 0, 0, tzinfo=now.tzinfo)
-    db = SessionLocal()
-    try:
-        reset = db.query(AdminSetting).filter(AdminSetting.key == "RAFFLE_RESET_AT").first()
-        if reset and reset.value:
-            try:
-                reset_dt = datetime.fromisoformat(reset.value)
-                if reset_dt > start and reset_dt < end:
-                    start = reset_dt
-            except Exception:
-                pass
-    finally:
-        db.close()
-    return start, end
+    return raffle_period(now)
 
 
 def _to_nano(ton_amount: float) -> int:
-    return int(Decimal(str(ton_amount)) * Decimal("1000000000"))
-
-    def _verify_with_secret(secret_key: bytes) -> bool:
-        parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-        hash_value = parsed.pop("hash", "")
-        if hash_value:
-            data_check = "\n".join(f"{k}={parsed[k]}" for k in sorted(parsed))
-            h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
-            if _constant_time_eq(h, hash_value):
-                return True
-
-        raw_pairs = []
-        raw_hash = ""
-        for pair in init_data.split("&"):
-            if not pair:
-                continue
-            k, _, v = pair.partition("=")
-            if k == "hash":
-                raw_hash = v
-                continue
-            raw_pairs.append((k, unquote_plus(v)))
-        if not raw_hash:
-            return False
-        raw_check = "\n".join(f"{k}={v}" for k, v in sorted(raw_pairs))
-        h2 = hmac.new(secret_key, raw_check.encode(), hashlib.sha256).hexdigest()
-        return _constant_time_eq(h2, raw_hash)
-
-    # WebApp validation (correct for initData)
-    webapp_secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    if _verify_with_secret(webapp_secret):
-        return True
-
-    # Fallback for legacy login-widget style (safety)
-    legacy_secret = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    return _verify_with_secret(legacy_secret)
+    return to_nano(ton_amount)
 
 
 def _client_ip(request: Request) -> str:
@@ -572,30 +187,7 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-class _RateLimiter:
-    def __init__(self, limit_per_min: int):
-        self.limit = limit_per_min
-        self.buckets: dict[str, list[float]] = {}
-
-    def allow(self, key: str) -> bool:
-        now = asyncio.get_event_loop().time()
-        window_start = now - 60
-        bucket = self.buckets.get(key, [])
-        bucket = [t for t in bucket if t >= window_start]
-        if len(bucket) >= self.limit:
-            self.buckets[key] = bucket
-            return False
-        bucket.append(now)
-        self.buckets[key] = bucket
-        return True
-
-
-_rate_limiter = _RateLimiter(RATE_LIMIT_PER_MIN)
-
-_admin_otp_code: str | None = None
-_admin_otp_expires_at: datetime | None = None
-_admin_sessions: dict[str, datetime] = {}
-
+_rate_limiter = RateLimiter(RATE_LIMIT_PER_MIN)
 
 @app.middleware("http")
 async def auth_and_rate_limit(request: Request, call_next):
@@ -643,90 +235,19 @@ async def _safe_send_user_message(order: Order) -> None:
 
 
 async def _notify_admin(text: str) -> None:
-    if not ADMIN_CHAT_IDS:
-        return
-    try:
-        for admin_id in ADMIN_CHAT_IDS:
-            await send_admin_message(chat_id=int(admin_id), text=text)
-    except Exception:
-        logger.exception("[ADMIN] Failed to send admin message")
+    await notify_admin(text)
 
 
 def _format_payment_method(order: Order) -> str:
-    if order.payment_provider == "platega":
-        if order.payment_method == "sbp":
-            return "SBP"
-        if order.payment_method == "card":
-            return "Card"
-        return "Platega"
-    if order.payment_provider == "tonconnect":
-        return "TON Wallet"
-    if order.payment_provider == "crypto":
-        return "CryptoBot"
-    return order.payment_provider or "unknown"
+    return format_payment_method(order)
 
 
 def _format_audit_line(order: Order) -> str:
-    bonus = int(order.bonus_stars_applied or 0)
-    qty = int(order.quantity or 0)
-    total = qty + bonus
-    when = order.timestamp.astimezone(MSK).strftime("%Y-%m-%d %H:%M")
-    if order.user_username:
-        user = f"{order.user_username} (id {order.user_id})"
-    else:
-        user = f"id {order.user_id}"
-    pay = _format_payment_method(order)
-    return (
-        f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
-        f"order: {order.order_id}"
-    )
+    return format_audit_line(order)
 
 
 def _format_audit_line_with_user(order: Order, display_name: str | None) -> str:
-    bonus = int(order.bonus_stars_applied or 0)
-    qty = int(order.quantity or 0)
-    total = qty + bonus
-    when = order.timestamp.astimezone(MSK).strftime("%Y-%m-%d %H:%M")
-    if display_name:
-        user = f"{display_name} (id {order.user_id})"
-    elif order.user_username:
-        user = f"{order.user_username} (id {order.user_id})"
-    else:
-        user = f"id {order.user_id}"
-    pay = _format_payment_method(order)
-    return (
-        f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
-        f"order: {order.order_id}"
-    )
-
-
-def _admin_session_valid(token: str | None) -> bool:
-    if not token:
-        return False
-    expires_at = _admin_sessions.get(token)
-    if not expires_at:
-        return False
-    if expires_at <= now_msk():
-        _admin_sessions.pop(token, None)
-        return False
-    return True
-
-
-def _admin_set_session() -> str:
-    token = secrets.token_urlsafe(24)
-    _admin_sessions[token] = now_msk() + timedelta(hours=12)
-    return token
-
-
-async def _admin_send_otp() -> None:
-    global _admin_otp_code, _admin_otp_expires_at
-    _admin_otp_code = f"{secrets.randbelow(1000000):06d}"
-    _admin_otp_expires_at = now_msk() + timedelta(minutes=ADMIN_OTP_TTL_MIN)
-    await _notify_admin(
-        "🔐 Admin login code\n"
-        f"Code: {_admin_otp_code}\n"
-        f"Valid: {ADMIN_OTP_TTL_MIN} min"
-    )
+    return format_audit_line_with_user(order, display_name)
 
 
 async def _send_audit_if_needed(order: Order, db) -> None:
@@ -870,12 +391,13 @@ async def _payment_sync_loop() -> None:
 
 @app.on_event("startup")
 async def _startup_tasks():
+    init_schema(engine=engine, base=Base)
     asyncio.create_task(_daily_report_loop())
     asyncio.create_task(_availability_loop())
     asyncio.create_task(_payment_sync_loop())
     if ADMIN_CHAT_IDS:
         dp = build_admin_dispatcher(ADMIN_CHAT_IDS)
-        asyncio.create_task(dp.start_polling(bot))
+        asyncio.create_task(dp.start_polling(get_bot()))
 
 
 async def _fulfill_order_if_needed(order: Order, db) -> None:
@@ -1005,78 +527,23 @@ def _stars_base_price(quantity: int) -> float:
 
 
 def _load_promo(code: str, db) -> PromoCode | None:
-    promo = db.query(PromoCode).filter(PromoCode.code == code.upper()).first()
-    if not promo:
-        return None
-    if not promo.active:
-        return None
-    if promo.expires_at and promo.expires_at < now_msk():
-        return None
-    if promo.max_uses is not None and promo.uses >= promo.max_uses:
-        return None
-    return promo
+    return load_promo(code, db)
 
 
 def _get_active_reservation(code: str, user_id: str, db) -> PromoReservation | None:
-    now = now_msk()
-    return db.query(PromoReservation).filter(
-        PromoReservation.code == code.upper(),
-        PromoReservation.user_id == user_id,
-        PromoReservation.expires_at > now
-    ).first()
+    return get_active_reservation(code, user_id, db)
 
 
 def _promo_used_by_user(code: str, user_id: str, db) -> bool:
-    return db.query(PromoRedemption).filter(
-        PromoRedemption.code == code.upper(),
-        PromoRedemption.user_id == user_id
-    ).first() is not None
+    return promo_used_by_user(code, user_id, db)
 
 
 def _bonus_summary(db, user_id: str) -> dict:
-    now = now_msk()
-    bonuses = db.query(BonusGrant).filter(
-        BonusGrant.user_id == user_id,
-        BonusGrant.status.in_(["active", "reserved"]),
-        (BonusGrant.expires_at.is_(None) | (BonusGrant.expires_at > now))
-    ).order_by(BonusGrant.expires_at.asc().nullsfirst(), BonusGrant.id.asc()).all()
-    total = sum((b.stars or 0) for b in bonuses)
-    expires_at = bonuses[0].expires_at.isoformat() if bonuses and bonuses[0].expires_at else None
-    return {"bonus_stars": total, "bonus_expires_at": expires_at}
+    return bonus_summary(db, user_id)
 
 
 def _reserve_promo(code: str, user_id: str, db) -> PromoReservation | None:
-    promo = _load_promo(code, db)
-    if not promo:
-        return None
-    if _promo_used_by_user(code, user_id, db):
-        return None
-
-    existing = _get_active_reservation(code, user_id, db)
-    if existing:
-        return existing
-
-    # enforce max uses against redemptions + active reservations
-    if promo.max_uses is not None:
-        redemptions = db.query(PromoRedemption).filter(PromoRedemption.code == promo.code).count()
-        reservations = db.query(PromoReservation).filter(
-            PromoReservation.code == promo.code,
-            PromoReservation.expires_at > now_msk()
-        ).count()
-        if redemptions + reservations >= promo.max_uses:
-            return None
-
-    expires_at = now_msk() + timedelta(minutes=15)
-    reservation = PromoReservation(
-        code=promo.code,
-        user_id=user_id,
-        percent=promo.percent,
-        expires_at=expires_at
-    )
-    db.add(reservation)
-    db.commit()
-    db.refresh(reservation)
-    return reservation
+    return reserve_promo(code, user_id, db)
 
 
 def _release_promo_reservation(order: Order, db) -> None:
@@ -2797,1227 +2264,8 @@ def _admin_panel_html(authed: bool) -> str:
 @app.get("/admin/panel", response_class=HTMLResponse)
 async def admin_panel(request: Request):
     token = request.cookies.get("admin_otp")
-    authed = _admin_session_valid(token)
+    authed = admin_auth.session_valid(token)
     return _admin_panel_html(authed)
-
-
-@app.post("/admin/otp/request")
-async def admin_otp_request():
-    if not ADMIN_CHAT_IDS:
-        raise HTTPException(status_code=403, detail="Admins not configured")
-    if _admin_otp_expires_at and _admin_otp_expires_at > now_msk():
-        raise HTTPException(status_code=429, detail="OTP already sent")
-    await _admin_send_otp()
-    return {"status": "ok"}
-
-
-class AdminOtpVerify(BaseModel):
-    code: str
-
-
-@app.post("/admin/otp/verify")
-async def admin_otp_verify(payload: AdminOtpVerify):
-    if not _admin_otp_code or not _admin_otp_expires_at:
-        raise HTTPException(status_code=400, detail="OTP not requested")
-    if _admin_otp_expires_at <= now_msk():
-        raise HTTPException(status_code=400, detail="OTP expired")
-    if payload.code.strip() != _admin_otp_code:
-        raise HTTPException(status_code=400, detail="Invalid code")
-
-    session_token = _admin_set_session()
-    response = JSONResponse({"status": "ok"})
-    response.set_cookie(
-        "admin_otp",
-        session_token,
-        httponly=True,
-        secure=True,
-        samesite="Lax",
-        max_age=12 * 60 * 60,
-    )
-    return response
-
-
-def _admin_require(request: Request) -> None:
-    token = request.cookies.get("admin_otp")
-    if not _admin_session_valid(token):
-        raise HTTPException(status_code=401, detail="Admin OTP required")
-
-
-class AdminSettingsPayload(BaseModel):
-    referral_percent: int | None = None
-    report_time: str | None = None
-    stars_rate_1: float | None = None
-    stars_rate_2: float | None = None
-    stars_rate_3: float | None = None
-    raffle_prize_title: str | None = None
-    raffle_prize_desc: str | None = None
-    raffle_prize_image: str | None = None
-    banner_enabled: bool | None = None
-    banner_title: str | None = None
-    banner_text: str | None = None
-    banner_url: str | None = None
-    banner_until: str | None = None
-    promo_text: str | None = None
-
-
-@app.get("/admin/settings")
-async def admin_settings(request: Request):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        return {
-            "referral_percent": _get_setting_int(db, "REFERRAL_PERCENT", REFERRAL_PERCENT),
-            "report_time": _get_setting(db, "ADMIN_REPORT_TIME", ADMIN_REPORT_TIME),
-            "stars_rate_1": _get_setting_float(db, "STARS_RATE_1", 1.39),
-            "stars_rate_2": _get_setting_float(db, "STARS_RATE_2", 1.37),
-            "stars_rate_3": _get_setting_float(db, "STARS_RATE_3", 1.35),
-            "raffle_prize_title": _get_setting(db, "RAFFLE_PRIZE_TITLE", "NFT-подарок или бонусные звёзды"),
-            "raffle_prize_desc": _get_setting(db, "RAFFLE_PRIZE_DESC", "Победитель получит приз после розыгрыша."),
-            "raffle_prize_image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
-            "banner_enabled": _get_setting(db, "BANNER_ENABLED", "false").lower() in ("1", "true", "yes"),
-            "banner_title": _get_setting(db, "BANNER_TITLE", ""),
-            "banner_text": _get_setting(db, "BANNER_TEXT", ""),
-            "banner_url": _get_setting(db, "BANNER_URL", ""),
-            "banner_until": _get_setting(db, "BANNER_UNTIL", ""),
-            "promo_text": _get_setting(db, "PROMO_TEXT", ""),
-        }
-    finally:
-        db.close()
-
-
-@app.post("/admin/settings")
-async def admin_settings_update(request: Request, payload: AdminSettingsPayload):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        updates = {
-            "REFERRAL_PERCENT": payload.referral_percent,
-            "ADMIN_REPORT_TIME": payload.report_time,
-            "STARS_RATE_1": payload.stars_rate_1,
-            "STARS_RATE_2": payload.stars_rate_2,
-            "STARS_RATE_3": payload.stars_rate_3,
-            "RAFFLE_PRIZE_TITLE": payload.raffle_prize_title,
-            "RAFFLE_PRIZE_DESC": payload.raffle_prize_desc,
-            "RAFFLE_PRIZE_IMAGE": payload.raffle_prize_image,
-            "BANNER_ENABLED": str(payload.banner_enabled).lower() if payload.banner_enabled is not None else None,
-            "BANNER_TITLE": payload.banner_title,
-            "BANNER_TEXT": payload.banner_text,
-            "BANNER_URL": payload.banner_url,
-            "BANNER_UNTIL": payload.banner_until,
-            "PROMO_TEXT": payload.promo_text,
-        }
-        for key, value in updates.items():
-            if value is None:
-                continue
-            row = db.query(AdminSetting).filter(AdminSetting.key == key).first()
-            if not row:
-                row = AdminSetting(key=key, value=str(value))
-                db.add(row)
-            else:
-                row.value = str(value)
-                row.updated_at = now_msk()
-        db.commit()
-        return {"status": "ok"}
-    finally:
-        db.close()
-
-
-class AdminPromoPayload(BaseModel):
-    code: str
-    percent: int
-    max_uses: int | None = None
-    active: bool = True
-    expires_at: str | None = None
-
-
-@app.post("/admin/promo/create")
-async def admin_promo_create(request: Request, payload: AdminPromoPayload):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        code = payload.code.strip().upper()
-        expires_at = None
-        if payload.expires_at:
-            expires_at = datetime.strptime(payload.expires_at, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, tzinfo=MSK
-            )
-        promo = db.query(PromoCode).filter(PromoCode.code == code).first()
-        if not promo:
-            promo = PromoCode(
-                code=code,
-                percent=payload.percent,
-                max_uses=payload.max_uses,
-                active=payload.active,
-                expires_at=expires_at
-            )
-            db.add(promo)
-        else:
-            promo.percent = payload.percent
-            promo.max_uses = payload.max_uses
-            promo.active = payload.active
-            promo.expires_at = expires_at
-        db.commit()
-        return {"status": "ok", "code": code}
-    finally:
-        db.close()
-
-
-class AdminBonusClaimPayload(BaseModel):
-    stars: int
-    ttl_minutes: int | None = None
-    max_uses: int | None = None
-    source: str | None = None
-
-
-@app.post("/admin/bonus/claim")
-async def admin_bonus_claim(request: Request, payload: AdminBonusClaimPayload):
-    _admin_require(request)
-    token = secrets.token_hex(12)
-    expires_at = None
-    if payload.ttl_minutes:
-        expires_at = now_msk() + timedelta(minutes=payload.ttl_minutes)
-    db = SessionLocal()
-    try:
-        claim = BonusClaim(
-            token=token,
-            stars=payload.stars,
-            status="active",
-            source=payload.source or "admin_panel",
-            max_uses=payload.max_uses or 1,
-            uses=0,
-            expires_at=expires_at
-        )
-        db.add(claim)
-        db.commit()
-        return {
-            "status": "ok",
-            "token": token,
-            "link": f"https://t.me/more_stars_bot?start=bonus_{token}",
-            "expires_at": expires_at.isoformat() if expires_at else None
-        }
-    finally:
-        db.close()
-
-
-class AdminBonusBulkPayload(BaseModel):
-    user_ids: str
-    stars: int
-    ttl_minutes: int | None = None
-    source: str | None = None
-
-
-@app.post("/admin/bonus/grant_bulk")
-async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayload):
-    _admin_require(request)
-    raw_ids = payload.user_ids or ""
-    tokens = re.split(r"[\\s,;]+", raw_ids.strip())
-    user_ids = [t for t in tokens if t]
-    if not user_ids:
-        raise HTTPException(status_code=400, detail="No user_ids provided")
-    expires_at = None
-    if payload.ttl_minutes:
-        expires_at = now_msk() + timedelta(minutes=payload.ttl_minutes)
-    db = SessionLocal()
-    try:
-        created = 0
-        for uid in user_ids:
-            grant = BonusGrant(
-                user_id=uid,
-                stars=payload.stars,
-                status="active",
-                source=payload.source or "admin_bulk",
-                expires_at=expires_at,
-            )
-            db.add(grant)
-            created += 1
-        db.commit()
-        return {"status": "ok", "created": created}
-    finally:
-        db.close()
-
-
-@app.get("/settings/public")
-async def public_settings():
-    db = SessionLocal()
-    try:
-        return {
-            "stars_rate_1": _get_setting_float(db, "STARS_RATE_1", 1.39),
-            "stars_rate_2": _get_setting_float(db, "STARS_RATE_2", 1.37),
-            "stars_rate_3": _get_setting_float(db, "STARS_RATE_3", 1.35),
-            "tier_1_max": 1000,
-            "tier_2_max": 5000,
-            "banner_enabled": _get_setting(db, "BANNER_ENABLED", "false").lower() in ("1", "true", "yes"),
-            "banner_title": _get_setting(db, "BANNER_TITLE", ""),
-            "banner_text": _get_setting(db, "BANNER_TEXT", ""),
-            "banner_url": _get_setting(db, "BANNER_URL", ""),
-            "banner_until": _get_setting(db, "BANNER_UNTIL", ""),
-            "promo_text": _get_setting(db, "PROMO_TEXT", ""),
-        }
-    finally:
-        db.close()
-
-
-@app.post("/analytics/visit")
-async def analytics_visit(request: Request, user_id: str | None = Query(default=None)):
-    init_data = request.headers.get("x-telegram-init-data")
-    uid = user_id
-    if not uid and init_data and _verify_telegram_init_data(init_data):
-        uid = _extract_user_id(init_data)
-    db = SessionLocal()
-    try:
-        db.execute(
-            text(
-                "INSERT INTO app_events (event_type, user_id) VALUES (:event_type, :user_id)"
-            ),
-            {"event_type": "open", "user_id": uid},
-        )
-        db.commit()
-        return {"status": "ok"}
-    finally:
-        db.close()
-
-
-class AnalyticsEventPayload(BaseModel):
-    event_type: str
-
-
-@app.post("/analytics/event")
-async def analytics_event(request: Request, payload: AnalyticsEventPayload, user_id: str | None = Query(default=None)):
-    init_data = request.headers.get("x-telegram-init-data")
-    uid = user_id
-    if not uid and init_data and _verify_telegram_init_data(init_data):
-        uid = _extract_user_id(init_data)
-    if not payload.event_type:
-        raise HTTPException(status_code=400, detail="event_type required")
-    db = SessionLocal()
-    try:
-        db.execute(
-            text(
-                "INSERT INTO app_events (event_type, user_id) VALUES (:event_type, :user_id)"
-            ),
-            {"event_type": payload.event_type, "user_id": uid},
-        )
-        db.commit()
-        return {"status": "ok"}
-    finally:
-        db.close()
-
-
-@app.get("/raffle/prize/preview")
-async def raffle_prize_preview(url: str = Query(...)):
-    if not url.startswith("https://t.me/nft/"):
-        raise HTTPException(status_code=400, detail="Only t.me/nft links are allowed")
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            r.raise_for_status()
-            meta = _parse_og_meta(r.text)
-        return {"ok": True, **meta}
-    except Exception as exc:
-        logger.exception("[RAFFLE] Failed to fetch prize preview")
-        raise HTTPException(status_code=502, detail="Failed to fetch prize preview") from exc
-
-
-@app.get("/admin/audit/today")
-async def admin_audit_today(request: Request):
-    _admin_require(request)
-    now = now_msk()
-    since = now - timedelta(hours=24)
-    db = SessionLocal()
-    try:
-        orders = (
-            db.query(Order)
-            .filter(
-                Order.product_type == "stars",
-                Order.status == "paid",
-                Order.timestamp >= since
-            )
-            .order_by(Order.timestamp.desc())
-            .limit(200)
-            .all()
-        )
-        user_ids = list({o.user_id for o in orders})
-        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
-        user_map = {}
-        for u in users:
-            if u.username:
-                user_map[u.user_id] = f"@{u.username}"
-            elif u.full_name:
-                user_map[u.user_id] = u.full_name
-    finally:
-        db.close()
-    items = [_format_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
-    return {"items": items}
-
-
-@app.get("/admin/audit/recent")
-async def admin_audit_recent(request: Request, limit: int = 200):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        orders = (
-            db.query(Order)
-            .filter(
-                Order.product_type == "stars",
-                Order.status == "paid",
-            )
-            .order_by(Order.timestamp.desc())
-            .limit(min(limit, 500))
-            .all()
-        )
-        user_ids = list({o.user_id for o in orders})
-        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
-        user_map = {}
-        for u in users:
-            if u.username:
-                user_map[u.user_id] = f"@{u.username}"
-            elif u.full_name:
-                user_map[u.user_id] = u.full_name
-    finally:
-        db.close()
-    items = [_format_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
-    return {"items": items}
-
-
-@app.get("/admin/analytics")
-async def admin_analytics(request: Request):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        start_msk = now - timedelta(days=30)
-        end_msk = now
-        start = start_msk.astimezone(timezone.utc)
-        end = end_msk.astimezone(timezone.utc)
-
-        created_orders = db.query(Order).filter(
-            Order.timestamp >= start,
-            Order.timestamp < end
-        ).count()
-        paid_orders_q = db.query(Order).filter(
-            Order.status == "paid",
-            Order.timestamp >= start,
-            Order.timestamp < end
-        )
-        paid_orders = paid_orders_q.all()
-        failed_orders = db.query(Order).filter(
-            Order.status == "failed",
-            Order.timestamp >= start,
-            Order.timestamp < end
-        ).count()
-
-        paid_total = sum((o.amount_rub or 0) for o in paid_orders)
-        avg_check = paid_total / len(paid_orders) if paid_orders else 0.0
-        stars_total = sum((o.quantity or 0) for o in paid_orders if o.product_type == "stars")
-        bonus_total = sum((o.bonus_stars_applied or 0) for o in paid_orders if o.product_type == "stars")
-
-        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in paid_orders)
-        usdtrub = None
-        rate_label = None
-        if need_cost_calc:
-            if STAR_COST_RATE_SOURCE == "moex":
-                usdtrub = await get_moex_usdrub_rate()
-                rate_label = "MOEX USD/RUB"
-            else:
-                usdtrub = await get_usdtrub_rate()
-                rate_label = "Binance USDTRUB"
-
-        total_cost = 0.0
-        total_profit = 0.0
-        for o in paid_orders:
-            if o.cost_rub is not None and o.profit_rub is not None:
-                total_cost += o.cost_rub or 0
-                total_profit += o.profit_rub or 0
-                continue
-            total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
-            if total_stars <= 0 or usdtrub is None:
-                continue
-            cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
-            cost_rub = _round_money(cost_usd * usdtrub) or 0
-            revenue = _round_money(o.amount_rub) or 0
-            profit = _round_money(revenue - cost_rub) or 0
-            per_star = _round_money(cost_rub / total_stars) if total_stars else 0
-            o.cost_rub = cost_rub
-            o.profit_rub = profit
-            o.cost_per_star = per_star
-            o.usdtrub_rate = _round_money(usdtrub) or 0
-            total_cost += cost_rub
-            total_profit += profit
-
-        if need_cost_calc:
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-
-        by_provider = {}
-        revenue_by_provider = {}
-        created_by_provider = {}
-        paid_by_provider = {}
-        for o in paid_orders:
-            key = o.payment_provider or "unknown"
-            by_provider[key] = by_provider.get(key, 0) + 1
-            revenue_by_provider[key] = round(revenue_by_provider.get(key, 0) + (o.amount_rub or 0), 2)
-            paid_by_provider[key] = paid_by_provider.get(key, 0) + 1
-        created_rows = (
-            db.query(Order.payment_provider, func.count())
-            .filter(Order.timestamp >= start, Order.timestamp < end)
-            .group_by(Order.payment_provider)
-            .all()
-        )
-        for provider, cnt in created_rows:
-            key = provider or "unknown"
-            created_by_provider[key] = int(cnt)
-
-        provider_conversion = {}
-        for key, created_cnt in created_by_provider.items():
-            paid_cnt = paid_by_provider.get(key, 0)
-            provider_conversion[key] = round((paid_cnt / created_cnt * 100), 2) if created_cnt else 0.0
-
-        conversion = round((len(paid_orders) / created_orders * 100), 2) if created_orders else 0.0
-
-        opens = db.execute(
-            text(
-                "SELECT COUNT(*) FROM app_events WHERE event_type = 'open' AND created_at >= :start AND created_at < :end"
-            ),
-            {"start": start, "end": end},
-        ).scalar() or 0
-        opens_unique = db.execute(
-            text(
-                "SELECT COUNT(DISTINCT user_id) FROM app_events WHERE event_type = 'open' AND user_id IS NOT NULL AND created_at >= :start AND created_at < :end"
-            ),
-            {"start": start, "end": end},
-        ).scalar() or 0
-        selects = db.execute(
-            text(
-                "SELECT COUNT(*) FROM app_events WHERE event_type LIKE 'select_%' AND created_at >= :start AND created_at < :end"
-            ),
-            {"start": start, "end": end},
-        ).scalar() or 0
-        selects_unique = db.execute(
-            text(
-                "SELECT COUNT(DISTINCT user_id) FROM app_events WHERE event_type LIKE 'select_%' AND user_id IS NOT NULL AND created_at >= :start AND created_at < :end"
-            ),
-            {"start": start, "end": end},
-        ).scalar() or 0
-
-        paid_users_unique = db.query(func.count(func.distinct(Order.user_id))).filter(
-            Order.status == "paid",
-            Order.timestamp >= start,
-            Order.timestamp < end,
-        ).scalar() or 0
-
-        open_to_select = round((selects_unique / opens_unique * 100), 2) if opens_unique else 0.0
-        select_to_paid = round((paid_users_unique / selects_unique * 100), 2) if selects_unique else 0.0
-        open_to_created = round((created_orders / opens * 100), 2) if opens else 0.0
-
-        top_users = (
-            db.query(Order.user_id, func.sum(Order.amount_rub).label("total"))
-            .filter(Order.status == "paid", Order.timestamp >= start, Order.timestamp < end)
-            .group_by(Order.user_id)
-            .order_by(desc(func.sum(Order.amount_rub)))
-            .limit(10)
-            .all()
-        )
-        top_items = []
-        if top_users:
-            ids = [u.user_id for u in top_users]
-            users = db.query(User).filter(User.user_id.in_(ids)).all()
-            user_map = {}
-            for u in users:
-                if u.username:
-                    user_map[u.user_id] = f"@{u.username}"
-                elif u.full_name:
-                    user_map[u.user_id] = u.full_name
-            for uid, total in top_users:
-                top_items.append({
-                    "user_id": uid,
-                    "display": user_map.get(uid),
-                    "revenue_rub": round(float(total or 0), 2),
-                })
-
-        return {
-            "period_start": start_msk.strftime("%Y-%m-%d"),
-            "period_end": end_msk.strftime("%Y-%m-%d"),
-            "opens": int(opens),
-            "opens_unique": int(opens_unique),
-            "selects": int(selects),
-            "selects_unique": int(selects_unique),
-            "created_orders": created_orders,
-            "paid_orders": len(paid_orders),
-            "failed_orders": failed_orders,
-            "conversion_paid_pct": conversion,
-            "conversion_open_to_created_pct": open_to_created,
-            "conversion_open_to_select_pct": open_to_select,
-            "conversion_select_to_paid_pct": select_to_paid,
-            "paid_total_rub": round(paid_total, 2),
-            "cost_total_rub": round(total_cost, 2),
-            "profit_total_rub": round(total_profit, 2),
-            "cost_rate_label": rate_label,
-            "usdtrub_rate": round(float(usdtrub), 2) if usdtrub is not None else None,
-            "avg_check_rub": round(avg_check, 2),
-            "stars_total": int(stars_total),
-            "bonus_total": int(bonus_total),
-            "by_provider": by_provider,
-            "revenue_by_provider": revenue_by_provider,
-            "provider_conversion_pct": provider_conversion,
-            "top_users_by_revenue": top_items,
-        }
-    finally:
-        db.close()
-
-
-@app.get("/admin/analytics/daily")
-async def admin_analytics_daily(request: Request, days: int = 30):
-    _admin_require(request)
-    days = max(1, min(days, 120))
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        start_msk = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_msk = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        start = start_msk.astimezone(timezone.utc)
-        end = end_msk.astimezone(timezone.utc)
-
-        orders = db.query(Order).filter(
-            Order.status == "paid",
-            Order.timestamp >= start,
-            Order.timestamp < end,
-        ).all()
-
-        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in orders)
-        usdtrub = None
-        if need_cost_calc:
-            usdtrub = await get_moex_usdrub_rate() if STAR_COST_RATE_SOURCE == "moex" else await get_usdtrub_rate()
-
-        daily = {}
-        for o in orders:
-            key = o.timestamp.astimezone(MSK).date().isoformat()
-            if key not in daily:
-                daily[key] = {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0}
-            revenue = _round_money(o.amount_rub) or 0
-            cost = o.cost_rub
-            profit = o.profit_rub
-            if (cost is None or profit is None) and usdtrub is not None:
-                total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
-                if total_stars > 0:
-                    cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
-                    cost = _round_money(cost_usd * usdtrub) or 0
-                    profit = _round_money(revenue - cost) or 0
-                    o.cost_rub = cost
-                    o.profit_rub = profit
-                    o.cost_per_star = _round_money(cost / total_stars) if total_stars else 0
-                    o.usdtrub_rate = _round_money(usdtrub) or 0
-            daily[key]["revenue"] += revenue
-            daily[key]["cost"] += cost or 0
-            daily[key]["profit"] += profit or 0
-            daily[key]["orders"] += 1
-
-        if need_cost_calc:
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-
-        items = []
-        for i in range(days):
-            day = (start_msk.date() + timedelta(days=i)).isoformat()
-            row = daily.get(day, {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0})
-            items.append({
-                "date": day,
-                "revenue": round(row["revenue"], 2),
-                "cost": round(row["cost"], 2),
-                "profit": round(row["profit"], 2),
-                "orders": row["orders"],
-            })
-        return {"items": items}
-    finally:
-        db.close()
-
-
-@app.get("/admin/users/search")
-async def admin_users_search(request: Request, q: str | None = Query(default=None), days: int = 30, limit: int = 50):
-    _admin_require(request)
-    days = max(1, min(days, 365))
-    limit = max(1, min(limit, 200))
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        start_msk = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_msk = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        start = start_msk.astimezone(timezone.utc)
-        end = end_msk.astimezone(timezone.utc)
-
-        ids = set()
-        query = (q or "").strip()
-        if query:
-            qnorm = query[1:] if query.startswith("@") else query
-            if qnorm.isdigit():
-                ids.add(qnorm)
-            users = db.query(User).filter(
-                or_(
-                    User.user_id == qnorm,
-                    User.username.ilike(f"%{qnorm}%"),
-                    User.full_name.ilike(f"%{qnorm}%"),
-                )
-            ).all()
-            for u in users:
-                ids.add(u.user_id)
-            if not ids:
-                return {"items": []}
-
-        q_orders = db.query(Order).filter(
-            Order.status == "paid",
-            Order.timestamp >= start,
-            Order.timestamp < end,
-        )
-        if ids:
-            q_orders = q_orders.filter(Order.user_id.in_(list(ids)))
-        orders = q_orders.all()
-
-        need_cost_calc = any((o.cost_rub is None or o.profit_rub is None) for o in orders)
-        usdtrub = None
-        if need_cost_calc:
-            usdtrub = await get_moex_usdrub_rate() if STAR_COST_RATE_SOURCE == "moex" else await get_usdtrub_rate()
-
-        agg = {}
-        for o in orders:
-            uid = o.user_id
-            if uid not in agg:
-                agg[uid] = {"revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0, "stars": 0}
-            revenue = _round_money(o.amount_rub) or 0
-            cost = o.cost_rub
-            profit = o.profit_rub
-            if (cost is None or profit is None) and usdtrub is not None:
-                total_stars = int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
-                if total_stars > 0:
-                    cost_usd = total_stars * (STAR_COST_USD_PER_100 / 100.0)
-                    cost = _round_money(cost_usd * usdtrub) or 0
-                    profit = _round_money(revenue - cost) or 0
-                    o.cost_rub = cost
-                    o.profit_rub = profit
-                    o.cost_per_star = _round_money(cost / total_stars) if total_stars else 0
-                    o.usdtrub_rate = _round_money(usdtrub) or 0
-            agg[uid]["revenue"] += revenue
-            agg[uid]["cost"] += cost or 0
-            agg[uid]["profit"] += profit or 0
-            agg[uid]["orders"] += 1
-            agg[uid]["stars"] += int(o.quantity or 0) + int(o.bonus_stars_applied or 0)
-
-        if need_cost_calc:
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-
-        users = db.query(User).filter(User.user_id.in_(list(agg.keys()))).all() if agg else []
-        user_map = {}
-        for u in users:
-            if u.username:
-                user_map[u.user_id] = f"@{u.username}"
-            elif u.full_name:
-                user_map[u.user_id] = u.full_name
-
-        items = []
-        for uid, row in agg.items():
-            items.append({
-                "user_id": uid,
-                "display": user_map.get(uid),
-                "revenue": round(row["revenue"], 2),
-                "cost": round(row["cost"], 2),
-                "profit": round(row["profit"], 2),
-                "orders": row["orders"],
-                "stars": row["stars"],
-            })
-        items.sort(key=lambda x: x["profit"], reverse=True)
-        return {"items": items[:limit]}
-    finally:
-        db.close()
-
-
-@app.get("/admin/promos")
-async def admin_promos(request: Request, filter: str | None = Query(default=None)):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        promos = db.query(PromoCode).order_by(PromoCode.code.asc()).all()
-        now = now_msk()
-        items = []
-        for p in promos:
-            expired = bool(p.expires_at and p.expires_at <= now)
-            used_up = bool(p.max_uses is not None and p.uses >= p.max_uses)
-            status = "active"
-            if not p.active:
-                status = "disabled"
-            elif expired:
-                status = "expired"
-            elif used_up:
-                status = "used"
-            if filter == "active" and status != "active":
-                continue
-            if filter == "expired" and status != "expired":
-                continue
-            if filter == "used" and status != "used":
-                continue
-            items.append({
-                "code": p.code,
-                "percent": p.percent,
-                "max_uses": p.max_uses,
-                "uses": p.uses,
-                "active": p.active,
-                "expires_at": p.expires_at.isoformat() if p.expires_at else None,
-                "status": status,
-            })
-        return {"items": items}
-    finally:
-        db.close()
-
-
-@app.get("/admin/bonuses")
-async def admin_bonuses(request: Request):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        bonuses = db.query(BonusGrant).order_by(BonusGrant.created_at.desc()).limit(300).all()
-        items = []
-        for b in bonuses:
-            items.append({
-                "user_id": b.user_id,
-                "stars": b.stars,
-                "status": b.status,
-                "source": b.source,
-                "expires_at": b.expires_at.isoformat() if b.expires_at else None,
-                "created_at": b.created_at.isoformat() if b.created_at else None,
-                "consumed_at": b.consumed_at.isoformat() if b.consumed_at else None,
-                "consumed_order_id": b.consumed_order_id,
-            })
-        return {"items": items}
-    finally:
-        db.close()
-
-
-@app.post("/admin/raffle/reset")
-async def admin_raffle_reset(request: Request):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        now = now_msk().isoformat()
-        row = db.query(AdminSetting).filter(AdminSetting.key == "RAFFLE_RESET_AT").first()
-        if not row:
-            row = AdminSetting(key="RAFFLE_RESET_AT", value=now)
-            db.add(row)
-        else:
-            row.value = now
-            row.updated_at = now_msk()
-        db.commit()
-        return {"status": "ok", "reset_at": now}
-    finally:
-        db.close()
-
-
-@app.post("/admin/raffle/recalc")
-async def admin_raffle_recalc(request: Request):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        period_start, period_end = _raffle_period(now)
-        totals = (
-            db.query(
-                Order.user_id.label("user_id"),
-                func.sum(Order.quantity).label("total")
-            )
-            .filter(
-                Order.status == "paid",
-                Order.product_type == "stars",
-                Order.timestamp >= period_start,
-                Order.timestamp < period_end,
-            )
-            .group_by(Order.user_id)
-            .subquery()
-        )
-        top_rows = (
-            db.query(totals.c.user_id, totals.c.total)
-            .order_by(desc(totals.c.total))
-            .limit(10)
-            .all()
-        )
-        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
-        items = []
-        for row in top_rows:
-            total = int(row.total or 0)
-            chance = 0.0
-            if total_all:
-                chance = float(Decimal(str(total / total_all * 100)).quantize(Decimal("0.01")))
-            items.append({"user_id": row.user_id, "total_stars": total, "chance_percent": chance})
-        stamp = now_msk().isoformat()
-        row = db.query(AdminSetting).filter(AdminSetting.key == "RAFFLE_RECALC_AT").first()
-        if not row:
-            row = AdminSetting(key="RAFFLE_RECALC_AT", value=stamp)
-            db.add(row)
-        else:
-            row.value = stamp
-            row.updated_at = now_msk()
-        db.commit()
-        return {"status": "ok", "recalc_at": stamp, "top": items}
-    finally:
-        db.close()
-
-
-@app.get("/admin/raffle/summary")
-async def admin_raffle_summary(request: Request):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        period_start, period_end = _raffle_period(now)
-        totals = (
-            db.query(
-                Order.user_id.label("user_id"),
-                func.sum(Order.quantity).label("total")
-            )
-            .filter(
-                Order.status == "paid",
-                Order.product_type == "stars",
-                Order.timestamp >= period_start,
-                Order.timestamp < period_end,
-            )
-            .group_by(Order.user_id)
-            .subquery()
-        )
-        all_rows = db.query(totals.c.user_id, totals.c.total).all()
-        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
-        is_draw_day = now.day in (15, 30)
-        winner = None
-        if is_draw_day and total_all and all_rows:
-            seed = f"raffle-{now.date().isoformat()}-{period_start.date().isoformat()}"
-            rng = random.Random(seed)
-            pick = rng.uniform(0, float(total_all))
-            acc = 0.0
-            for row in all_rows:
-                weight = float(row.total or 0)
-                acc += weight
-                if pick <= acc:
-                    winner = {"user_id": row.user_id, "total_stars": int(row.total or 0)}
-                    break
-            if winner is None and all_rows:
-                row = all_rows[0]
-                winner = {"user_id": row.user_id, "total_stars": int(row.total or 0)}
-        return {
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
-            "total_participants": int(db.query(func.count()).select_from(totals).scalar() or 0),
-            "total_stars": int(total_all or 0),
-            "draw_day": is_draw_day,
-            "winner": winner,
-        }
-    finally:
-        db.close()
-
-
-@app.get("/admin/raffle/participants")
-async def admin_raffle_participants(request: Request, format: str | None = Query(default=None)):
-    _admin_require(request)
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        period_start, period_end = _raffle_period(now)
-        totals = (
-            db.query(
-                Order.user_id.label("user_id"),
-                func.sum(Order.quantity).label("total")
-            )
-            .filter(
-                Order.status == "paid",
-                Order.product_type == "stars",
-                Order.timestamp >= period_start,
-                Order.timestamp < period_end,
-            )
-            .group_by(Order.user_id)
-            .subquery()
-        )
-        rows = db.query(totals.c.user_id, totals.c.total).order_by(desc(totals.c.total)).all()
-        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
-        ids = [r.user_id for r in rows]
-        user_map = {}
-        if ids:
-            users = db.query(User).filter(User.user_id.in_(ids)).all()
-            for u in users:
-                if u.username:
-                    user_map[u.user_id] = f"@{u.username}"
-                elif u.full_name:
-                    user_map[u.user_id] = u.full_name
-        items = []
-        for r in rows:
-            total = int(r.total or 0)
-            chance = 0.0
-            if total_all:
-                chance = float(Decimal(str(total / total_all * 100)).quantize(Decimal("0.01")))
-            items.append({
-                "user_id": r.user_id,
-                "username": user_map.get(r.user_id),
-                "total_stars": total,
-                "chance_percent": chance,
-            })
-        if (format or "").lower() == "csv":
-            lines = ["user_id,username,total_stars,chance_percent"]
-            for item in items:
-                username = (item["username"] or "").replace(",", " ")
-                lines.append(f"{item['user_id']},{username},{item['total_stars']},{item['chance_percent']}")
-            return PlainTextResponse("\n".join(lines), media_type="text/csv")
-        return {"items": items}
-    finally:
-        db.close()
-
-
-@app.get("/promo/validate")
-async def promo_validate(code: str = Query(...)):
-    db = SessionLocal()
-    try:
-        promo = _load_promo(code, db)
-        if not promo:
-            return {"valid": False}
-        return {"valid": True, "percent": promo.percent}
-    finally:
-        db.close()
-
-
-@app.post("/promo/apply")
-async def promo_apply(code: str = Query(...), user_id: str = Query(...)):
-    db = SessionLocal()
-    try:
-        reservation = _reserve_promo(code, user_id, db)
-        if not reservation:
-            return {"valid": False}
-        return {"valid": True, "percent": reservation.percent, "expires_at": reservation.expires_at.isoformat()}
-    finally:
-        db.close()
-
-
-@app.post("/ref/attach")
-async def ref_attach(user_id: str = Query(...), referrer_id: str = Query(...)):
-    if user_id == referrer_id:
-        return {"status": "ok"}
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            user = User(user_id=user_id, referrer_id=referrer_id)
-            db.add(user)
-            db.commit()
-            return {"status": "ok"}
-        if not user.referrer_id:
-            user.referrer_id = referrer_id
-            db.commit()
-        return {"status": "ok"}
-    finally:
-        db.close()
-
-
-@app.post("/admin/bonus/grant")
-async def admin_bonus_grant(
-    user_id: str = Query(...),
-    stars: int = Query(...),
-    source: str | None = Query(default=None),
-    expires_at: str | None = Query(default=None),
-    ttl_minutes: int | None = Query(default=None),
-    api_key: str | None = Query(default=None),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-):
-    if not API_AUTH_KEY:
-        raise HTTPException(status_code=500, detail="API_AUTH_KEY is not configured")
-    if not _constant_time_eq(API_AUTH_KEY, api_key or x_api_key or ""):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    if stars <= 0:
-        raise HTTPException(status_code=400, detail="Stars must be positive")
-
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            user = User(user_id=user_id)
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-
-        existing = db.query(BonusGrant).filter(
-            BonusGrant.user_id == user_id,
-            BonusGrant.status.in_(["active", "reserved"])
-        ).first()
-        if existing:
-            raise HTTPException(status_code=409, detail="User already has active bonus")
-
-        expires_dt = None
-        if ttl_minutes:
-            expires_dt = now_msk() + timedelta(minutes=ttl_minutes)
-        elif expires_at:
-            try:
-                expires_dt = datetime.fromisoformat(expires_at)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Invalid expires_at format") from exc
-
-        grant = BonusGrant(
-            user_id=user_id,
-            stars=stars,
-            status="active",
-            source=source,
-            expires_at=expires_dt
-        )
-        db.add(grant)
-        db.commit()
-        db.refresh(grant)
-        return {"status": "ok", "bonus_id": grant.id, "expires_at": grant.expires_at}
-    finally:
-        db.close()
-
-
-@app.get("/profile/summary")
-async def profile_summary(user_id: str = Query(...), request: Request = None):
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            user = User(user_id=user_id)
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-        init_data = request.headers.get("x-telegram-init-data") if request else None
-        if init_data:
-            _touch_user_from_initdata(db, user_id, init_data)
-        bonus = _bonus_summary(db, user_id)
-        invited_count = db.query(User).filter(User.referrer_id == user_id).count()
-        return {
-            "referral_balance_stars": user.referral_balance_stars or 0,
-            "referrer_id": user.referrer_id,
-            "invited_count": invited_count,
-            "bonus_balance_stars": bonus["bonus_stars"],
-            "bonus_expires_at": bonus["bonus_expires_at"]
-        }
-    finally:
-        db.close()
-
-
-@app.get("/raffle/summary")
-async def raffle_summary(user_id: str = Query(...)):
-    db = SessionLocal()
-    try:
-        now = now_msk()
-        period_start, period_end = _raffle_period(now)
-        totals = (
-            db.query(
-                Order.user_id.label("user_id"),
-                func.sum(Order.quantity).label("total")
-            )
-            .filter(
-                Order.status == "paid",
-                Order.product_type == "stars",
-                Order.timestamp >= period_start,
-                Order.timestamp < period_end,
-            )
-            .group_by(Order.user_id)
-            .subquery()
-        )
-
-        top_rows = (
-            db.query(totals.c.user_id, totals.c.total)
-            .order_by(desc(totals.c.total))
-            .limit(10)
-            .all()
-        )
-        all_rows = db.query(totals.c.user_id, totals.c.total).all()
-
-        user_total = db.query(totals.c.total).filter(totals.c.user_id == user_id).scalar() or 0
-        total_all = db.query(func.sum(totals.c.total)).scalar() or 0
-
-        rank = None
-        if user_total:
-            higher = db.query(func.count()).select_from(totals).filter(totals.c.total > user_total).scalar() or 0
-            rank = int(higher) + 1
-
-        ids = {row.user_id for row in top_rows}
-        if user_id:
-            ids.add(user_id)
-
-        user_map = {}
-        if ids:
-            users = db.query(User).filter(User.user_id.in_(list(ids))).all()
-            for u in users:
-                if u.username:
-                    user_map[u.user_id] = f"@{u.username}"
-                elif u.full_name:
-                    user_map[u.user_id] = u.full_name
-
-        top = []
-        for row in top_rows:
-            total = int(row.total or 0)
-            chance = 0.0
-            if total_all:
-                chance = float(Decimal(str(total / total_all * 100)).quantize(Decimal("0.01")))
-            top.append({
-                "user_id": row.user_id,
-                "display": user_map.get(row.user_id),
-                "total_stars": total,
-                "chance_percent": chance,
-            })
-
-        next_draws = [d.isoformat() for d in _next_draw_dates(now)]
-        is_draw_day = now.day in (15, 30)
-        chance_percent = 0.0
-        if total_all and user_total:
-            chance_percent = float(Decimal(str(user_total / total_all * 100)).quantize(Decimal("0.01")))
-
-        prize = {
-            "title": _get_setting(db, "RAFFLE_PRIZE_TITLE", "NFT-подарок или бонусные звёзды"),
-            "description": _get_setting(db, "RAFFLE_PRIZE_DESC", "Победитель получит приз после розыгрыша."),
-            "image": _get_setting(db, "RAFFLE_PRIZE_IMAGE", ""),
-        }
-
-        winner = None
-        if is_draw_day and total_all and all_rows:
-            seed = f"raffle-{now.date().isoformat()}-{period_start.date().isoformat()}"
-            rng = random.Random(seed)
-            pick = rng.uniform(0, float(total_all))
-            acc = 0.0
-            for row in all_rows:
-                weight = float(row.total or 0)
-                acc += weight
-                if pick <= acc:
-                    winner = {
-                        "user_id": row.user_id,
-                        "display": user_map.get(row.user_id),
-                        "total_stars": int(row.total or 0),
-                        "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal("0.01"))) if total_all else 0.0,
-                    }
-                    break
-            if winner is None:
-                row = all_rows[0]
-                winner = {
-                    "user_id": row.user_id,
-                    "display": user_map.get(row.user_id),
-                    "total_stars": int(row.total or 0),
-                    "chance_percent": float(Decimal(str((row.total or 0) / total_all * 100)).quantize(Decimal("0.01"))) if total_all else 0.0,
-                }
-
-        return {
-            "next_draws": next_draws,
-            "top": top,
-            "user": {
-                "user_id": user_id,
-                "display": user_map.get(user_id),
-                "total_stars": int(user_total or 0),
-                "rank": rank,
-                "chance_percent": chance_percent,
-            },
-            "prize": prize,
-            "draw_day": is_draw_day,
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
-            "winner": winner,
-            "total_participants": int(db.query(func.count()).select_from(totals).scalar() or 0),
-            "total_stars": int(total_all or 0),
-        }
-    finally:
-        db.close()
 
 
 @app.get("/orders/{order_id}")

@@ -5,8 +5,6 @@ psycopg2-binary
 pydantic
 httpx
 python-dotenv
-requests
-aiohttp
 tonsdk
 TonTools
 pytest
