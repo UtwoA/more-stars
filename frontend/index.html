@@ -1440,12 +1440,6 @@ const rafflePrizeModal = document.getElementById("raffle-prize-modal");
 const raffleWheelCenter = document.querySelector(".wheel-center");
 if (raffleWheelCenter) {
   raffleWheelCenter.addEventListener("click", () => {
-    const prizeLink = document.getElementById("raffle-prize-link");
-    const url = prizeLink?.getAttribute("href") || "";
-    if (url) {
-      window.open(url, "_blank");
-      return;
-    }
     rafflePrizeModal.classList.add("open");
   });
 }
