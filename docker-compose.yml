@@ -26,5 +26,5 @@ services:
       - "8000:8000"
     volumes:
       - ./fragment_cookies.json:/app/fragment_cookies.json:ro
-      - ./morestars.session:/app/morestars.session
+      - ./sessions:/tmp/pyrofork_sessions
       - ./morestars.session:/app/morestars.session:ro
