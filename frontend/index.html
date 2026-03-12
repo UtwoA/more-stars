@@ -357,6 +357,48 @@
       box-shadow:0 6px 16px rgba(42,139,242,0.2);
       transform:translateY(-2px);
     }
+    .toggle{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:13px;
+      color:var(--text);
+      user-select:none;
+    }
+    .toggle input{
+      display:none;
+    }
+    .toggle-ui{
+      width:38px;
+      height:22px;
+      border-radius:999px;
+      background: rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.12);
+      position:relative;
+      transition: background var(--transition), border-color var(--transition);
+    }
+    .toggle-ui::after{
+      content:"";
+      position:absolute;
+      width:16px;
+      height:16px;
+      border-radius:50%;
+      background:#fff;
+      top:2px;
+      left:2px;
+      transition: transform var(--transition);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    }
+    .toggle input:checked + .toggle-ui{
+      background: var(--accentGrad);
+      border-color: rgba(255,255,255,0.25);
+    }
+    .toggle input:checked + .toggle-ui::after{
+      transform: translateX(16px);
+    }
+    .toggle-text{
+      font-weight:600;
+    }
 
     .pkg .btn {
       padding:6px 12px;
@@ -735,6 +777,21 @@
             Далее
           </button>
         </div>
+
+        <div id="gift-options" style="display:none;margin-top:18px">
+          <div class="label" style="margin-bottom:8px" data-i18n="gift_options">Настройки подарка</div>
+          <label class="toggle">
+            <input type="checkbox" id="gift-anon" checked />
+            <span class="toggle-ui"></span>
+            <span class="toggle-text" data-i18n="gift_anon">Анонимно</span>
+          </label>
+          <label class="toggle" style="margin-top:10px;">
+            <input type="checkbox" id="gift-signature-enabled" />
+            <span class="toggle-ui"></span>
+            <span class="toggle-text" data-i18n="gift_signature">Добавить подпись</span>
+          </label>
+          <input type="text" id="gift-signature" class="qty" placeholder="— Your name" style="display:none;margin-top:10px;" />
+        </div>
       </div>
       <img src="selectRecipient.gif"
            alt="Payment Animation"
@@ -1030,6 +1087,9 @@ const translations = {
       to_friend: "Другу",
       enter_friend_username: "Введите @username друга",
       next: "Далее",
+      gift_options: "Настройки подарка",
+      gift_anon: "Анонимно",
+      gift_signature: "Добавить подпись",
 
       // Payment
       purchase: "Покупка",
@@ -1125,6 +1185,9 @@ const translations = {
       to_friend: "Friend",
       enter_friend_username: "Enter friend's @username",
       next: "Next",
+      gift_options: "Gift settings",
+      gift_anon: "Anonymous",
+      gift_signature: "Add signature",
 
       // Payment
       purchase: "Purchase",
@@ -1269,6 +1332,9 @@ document.getElementById("pay-cryptobot").onclick = async () => {
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
         gift_id: currentPurchase.gift_id || null,
+        gift_hide_name: currentPurchase.gift_hide_name ?? null,
+        gift_with_signature: currentPurchase.gift_with_signature ?? null,
+        gift_signature: currentPurchase.gift_signature ?? null,
         amount_rub: amountValue,
         currency: "USDT",
         promo_code: promoCode || null
@@ -1349,6 +1415,9 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
         gift_id: currentPurchase.gift_id || null,
+        gift_hide_name: currentPurchase.gift_hide_name ?? null,
+        gift_with_signature: currentPurchase.gift_with_signature ?? null,
+        gift_signature: currentPurchase.gift_signature ?? null,
         amount_rub: amountValue,
         payment_method: paymentMethod,
         promo_code: promoCode || null
@@ -1472,6 +1541,9 @@ document.getElementById("pay-ton").onclick = async () => {
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
         gift_id: currentPurchase.gift_id || null,
+        gift_hide_name: currentPurchase.gift_hide_name ?? null,
+        gift_with_signature: currentPurchase.gift_with_signature ?? null,
+        gift_signature: currentPurchase.gift_signature ?? null,
         amount_rub: amountValue,
         promo_code: promoCode || null
       })
@@ -1550,6 +1622,9 @@ document.getElementById("pay-stars").onclick = async () => {
         recipient: currentPurchase.recipient || "self",
         product_type: "gift",
         gift_id: currentPurchase.gift_id || null,
+        gift_hide_name: currentPurchase.gift_hide_name ?? null,
+        gift_with_signature: currentPurchase.gift_with_signature ?? null,
+        gift_signature: currentPurchase.gift_signature ?? null,
         amount_rub: amountValue,
         promo_code: promoCode || null
       })
@@ -1855,6 +1930,38 @@ document.getElementById('to-friend').addEventListener('click', () => {
     proceedToPayment(val);
   };
 });
+
+const giftAnon = document.getElementById('gift-anon');
+const giftSigEnabled = document.getElementById('gift-signature-enabled');
+const giftSigInput = document.getElementById('gift-signature');
+if (giftAnon) {
+  giftAnon.addEventListener('change', () => {
+    if (currentPurchase?.product_type === "gift") {
+      currentPurchase.gift_hide_name = !!giftAnon.checked;
+    }
+  });
+}
+if (giftSigEnabled) {
+  giftSigEnabled.addEventListener('change', () => {
+    if (currentPurchase?.product_type !== "gift") return;
+    const enabled = !!giftSigEnabled.checked;
+    currentPurchase.gift_with_signature = enabled;
+    if (giftSigInput) {
+      giftSigInput.style.display = enabled ? "block" : "none";
+      if (!enabled) {
+        giftSigInput.value = "";
+        currentPurchase.gift_signature = null;
+      }
+    }
+  });
+}
+if (giftSigInput) {
+  giftSigInput.addEventListener('input', () => {
+    if (currentPurchase?.product_type === "gift") {
+      currentPurchase.gift_signature = giftSigInput.value.trim() || null;
+    }
+  });
+}
 
 // Я не знаю что это, наверное функция рендера карточек
 function el(tag,props={},children=[]){
@@ -2623,6 +2730,26 @@ function renderGrid(gridId, packages){
 function openRecipientPage(pkg) {
   currentPurchase = { ...pkg };
   document.getElementById('friend-input-container').style.display = 'none';
+  const giftOptions = document.getElementById('gift-options');
+  if (giftOptions) {
+    if (pkg.product_type === "gift") {
+      giftOptions.style.display = 'block';
+      const anon = document.getElementById('gift-anon');
+      const sigEnabled = document.getElementById('gift-signature-enabled');
+      const sigInput = document.getElementById('gift-signature');
+      if (anon) anon.checked = true;
+      if (sigEnabled) sigEnabled.checked = false;
+      if (sigInput) {
+        sigInput.value = "";
+        sigInput.style.display = "none";
+      }
+      currentPurchase.gift_hide_name = true;
+      currentPurchase.gift_with_signature = false;
+      currentPurchase.gift_signature = null;
+    } else {
+      giftOptions.style.display = 'none';
+    }
+  }
   switchPage("recipient-page");
 }
 
