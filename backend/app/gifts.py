@@ -41,6 +41,11 @@ def _build_client() -> Client:
         if dir_name:
             workdir = dir_name
 
+    if not workdir:
+        workdir = "/tmp/pyrofork_sessions"
+
+    os.makedirs(workdir, exist_ok=True)
+
     return Client(
         name=session_name,
         api_id=int(api_id),
