@@ -25,7 +25,7 @@ def _build_client() -> Client:
 
     if session_string:
         return Client(
-            session_name=":memory:",
+            name=":memory:",
             api_id=int(api_id),
             api_hash=api_hash,
             session_string=session_string,
@@ -42,7 +42,7 @@ def _build_client() -> Client:
             workdir = dir_name
 
     return Client(
-        session_name=session_name,
+        name=session_name,
         api_id=int(api_id),
         api_hash=api_hash,
         workdir=workdir,
