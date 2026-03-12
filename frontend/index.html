@@ -1443,7 +1443,9 @@ if (raffleWheelCenter) {
     const prizeLink = document.getElementById("raffle-prize-link");
     const url = prizeLink?.getAttribute("href") || "";
     if (url) {
-      if (window.Telegram?.WebApp?.openLink) {
+      if (window.Telegram?.WebApp?.openTelegramLink && /^https?:\\/\\/t\\.me\\//i.test(url)) {
+        window.Telegram.WebApp.openTelegramLink(url);
+      } else if (window.Telegram?.WebApp?.openLink) {
         window.Telegram.WebApp.openLink(url);
       } else {
         window.open(url, "_blank");
@@ -1455,6 +1457,17 @@ if (raffleWheelCenter) {
 }
 document.getElementById("raffle-prize-close").addEventListener("click", () => {
   rafflePrizeModal.classList.remove("open");
+});
+document.getElementById("raffle-prize-link").addEventListener("click", (e) => {
+  const url = e.currentTarget?.getAttribute("href") || "";
+  if (!url) return;
+  if (window.Telegram?.WebApp?.openTelegramLink && /^https?:\\/\\/t\\.me\\//i.test(url)) {
+    e.preventDefault();
+    window.Telegram.WebApp.openTelegramLink(url);
+  } else if (window.Telegram?.WebApp?.openLink) {
+    e.preventDefault();
+    window.Telegram.WebApp.openLink(url);
+  }
 });
 rafflePrizeModal.addEventListener("click", (e) => {
   if (e.target === rafflePrizeModal) rafflePrizeModal.classList.remove("open");
