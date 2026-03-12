@@ -46,6 +46,15 @@ def _build_client() -> Client:
 
     os.makedirs(workdir, exist_ok=True)
 
+    if not session_string:
+        session_path = os.path.join(workdir, f"{session_name}.session")
+        if not os.path.isfile(session_path):
+            raise RuntimeError(
+                "Pyrogram session file not found. "
+                "Put the .session file into PYROFORK_SESSION_DIR (or /tmp/pyrofork_sessions) "
+                "and set PYROFORK_SESSION to its name/path."
+            )
+
     return Client(
         name=session_name,
         api_id=int(api_id),
