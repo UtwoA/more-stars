@@ -338,10 +338,28 @@ async def _send_gift_audit_if_needed(order: Order, db) -> None:
             display = f"@{user.username}" if user.username else user.full_name
     line = _format_gift_audit_line_with_user(order, display)
     revenue = _round_money(order.amount_rub) or 0
+    try:
+        if STAR_COST_RATE_SOURCE == "moex":
+            usdtrub = await get_moex_usdrub_rate()
+            rate_label = "MOEX USD/RUB"
+        else:
+            usdtrub = await get_usdtrub_rate()
+            rate_label = "Binance USDTRUB"
+        cost_rub = _round_money(usdtrub * 0.75) or 0
+        profit = _round_money(revenue - cost_rub) or 0
+        revenue_line = (
+            f"\n💸 Себестоимость: {cost_rub} ₽"
+            f"\n📈 Чистая прибыль: {profit} ₽"
+            f"\n💱 Курс {rate_label}: {_round_money(usdtrub)} ₽"
+        )
+    except Exception:
+        logger.exception("[AUDIT] Failed to compute gift revenue")
+        revenue_line = ""
     text = (
         "✅ Покупка подарка\n"
         f"{line}\n"
         f"💰 Выручка: {revenue} ₽"
+        f"{revenue_line}"
     )
     await _notify_admin(text)
     order.audit_sent = True

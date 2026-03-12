@@ -3,13 +3,15 @@ from .config import MSK
 
 def format_payment_method(order) -> str:
     if order.payment_provider == "platega":
-        return "SBP" if order.payment_method == "sbp" else "Card"
+        return "СБП" if order.payment_method == "sbp" else "Карта"
     if order.payment_provider == "crypto":
         return "CryptoBot"
     if order.payment_provider == "tonconnect":
         return "TON"
     if order.payment_provider == "robokassa":
         return "Robokassa"
+    if order.payment_provider == "tg_stars":
+        return "Stars"
     return order.payment_provider or "unknown"
 
 
@@ -22,7 +24,7 @@ def format_audit_line(order) -> str:
     pay = format_payment_method(order)
     return (
         f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
-        f"order: {order.order_id}"
+        f"заказ: {order.order_id}"
     )
 
 
@@ -40,7 +42,7 @@ def format_audit_line_with_user(order, display_name: str | None) -> str:
     pay = format_payment_method(order)
     return (
         f"⭐ {total} ({qty}+{bonus}) | {user} | {pay} | {when}\n"
-        f"order: {order.order_id}"
+        f"заказ: {order.order_id}"
     )
 
 
@@ -54,9 +56,9 @@ def format_gift_audit_line_with_user(order, display_name: str | None) -> str:
         user = f"id {order.user_id}"
     pay = format_payment_method(order)
     title = order.gift_title or f"#{order.gift_id}" if order.gift_id else "gift"
-    anon = "anon" if order.gift_hide_name else "public"
-    signature = "signature" if order.gift_with_signature else "no-sign"
+    anon = "анонимно" if order.gift_hide_name else "публично"
+    signature = "с подписью" if order.gift_with_signature else "без подписи"
     return (
         f"🎁 {title} | {user} | {pay} | {anon} | {signature} | {when}\n"
-        f"order: {order.order_id}"
+        f"заказ: {order.order_id}"
     )
