@@ -95,7 +95,11 @@ async def send_star_gift(
     client = await _get_client()
 
     peer = await client.resolve_peer(chat_id)
+    if text is None:
+        text = ""
     text, entities = (await utils.parse_text_entities(client, text, parse_mode, entities)).values()
+    if entities is None:
+        entities = []
 
     invoice = raw.types.InputInvoiceStarGift(
         peer=peer,
