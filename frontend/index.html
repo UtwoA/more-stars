@@ -765,7 +765,7 @@
                       style="border-color:#2a8bf2;color:#2a8bf2" data-i18n="ton_pay">
                 TON Wallet
               </button>
-              <div class="fee-label">Комиссия 0%</div>
+              <div class="fee-label" id="fee-stars">Комиссия 0%</div>
 
               <button class="btn secondary" id="pay-cryptobot"
                       style="border-color:#3aa3ff;color:#3aa3ff" data-i18n="crypto_bot">
@@ -1910,6 +1910,10 @@ function openPaymentPage(pkg) {
     } else {
       payStarsBtn.style.display = "none";
     }
+  }
+  const feeStars = document.getElementById("fee-stars");
+  if (feeStars) {
+    feeStars.style.display = pkg.product_type === "gift" ? "block" : "none";
   }
 
   switchPage("payment-page");
