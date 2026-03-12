@@ -34,6 +34,7 @@ from .admin_notify import notify_admin
 from .audit import (
     format_audit_line,
     format_audit_line_with_user,
+    format_gift_audit_line_with_user,
     format_payment_method,
 )
 from .api.admin import router as admin_router
@@ -49,7 +50,7 @@ from .db_init import init_schema
 from .money import round_money, to_nano
 from .og_meta import parse_og_meta
 from .bonus_service import bonus_summary
-from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting
+from .models import Order, User, PromoCode, PromoRedemption, PromoReservation, ReferralEarning, PaymentTransaction, BonusGrant, BonusClaim, BonusClaimRedemption, AdminSetting, GiftCatalog
 from .promo_service import (
     get_active_reservation,
     load_promo,
@@ -81,7 +82,8 @@ from .settings_store import get_report_time, get_setting, get_setting_float, get
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
-from bot import send_user_message, send_admin_message, build_admin_dispatcher, get_bot
+from .gifts import send_star_gift, close_gift_client
+from bot import send_user_message, send_admin_message, send_user_notice, build_admin_dispatcher, get_bot
 
 
 load_dotenv()
@@ -113,7 +115,7 @@ PLATEGA_RETRY_BASE = float(os.getenv("PLATEGA_RETRY_BASE", "0.6"))
 PLATEGA_RETRY_JITTER = float(os.getenv("PLATEGA_RETRY_JITTER", "0.4"))
 PLATEGA_NOTIFY_TTL_SECONDS = int(os.getenv("PLATEGA_NOTIFY_TTL_SECONDS", "300"))
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger("main")
 
 app = FastAPI()
@@ -134,6 +136,11 @@ def _product_label(order: Order) -> str:
         return f"Premium {order.months} month(s)"
     if order.product_type == "ads":
         return f"Ads amount {order.amount}"
+    if order.product_type == "gift":
+        if order.gift_title:
+            return f"Gift {order.gift_title}"
+        if order.gift_id:
+            return f"Gift #{order.gift_id}"
     return order.product_type
 
 
@@ -243,6 +250,15 @@ async def _safe_send_user_message(order: Order) -> None:
     await send_user_message(chat_id=chat_id, product_name=_product_label(order))
 
 
+async def _safe_send_user_notice(order: Order, text: str) -> None:
+    try:
+        chat_id = int(order.user_id)
+    except (TypeError, ValueError):
+        logger.warning("[BOT] Invalid user_id for chat_id: %s", order.user_id)
+        return
+    await send_user_notice(chat_id=chat_id, text=text)
+
+
 async def _notify_admin(text: str) -> None:
     await notify_admin(text)
 
@@ -257,6 +273,10 @@ def _format_audit_line(order: Order) -> str:
 
 def _format_audit_line_with_user(order: Order, display_name: str | None) -> str:
     return format_audit_line_with_user(order, display_name)
+
+
+def _format_gift_audit_line_with_user(order: Order, display_name: str | None) -> str:
+    return format_gift_audit_line_with_user(order, display_name)
 
 
 async def _send_audit_if_needed(order: Order, db) -> None:
@@ -299,6 +319,28 @@ async def _send_audit_if_needed(order: Order, db) -> None:
     except Exception:
         logger.exception("[AUDIT] Failed to compute revenue")
     text = "✅ Покупка звёзд\n" + base_line + revenue_line
+    await _notify_admin(text)
+    order.audit_sent = True
+    db.commit()
+
+
+async def _send_gift_audit_if_needed(order: Order, db) -> None:
+    if order.audit_sent:
+        return
+    if order.product_type != "gift" or order.status != "paid":
+        return
+    display = None
+    if not order.user_username:
+        user = db.query(User).filter(User.user_id == order.user_id).first()
+        if user:
+            display = f"@{user.username}" if user.username else user.full_name
+    line = _format_gift_audit_line_with_user(order, display)
+    revenue = _round_money(order.amount_rub) or 0
+    text = (
+        "✅ Покупка подарка\n"
+        f"{line}\n"
+        f"💰 Выручка: {revenue} ₽"
+    )
     await _notify_admin(text)
     order.audit_sent = True
     db.commit()
@@ -368,7 +410,16 @@ async def _sync_pending_orders() -> None:
                         Order.status == "created",
                         and_(
                             Order.status == "paid",
-                            or_(Order.fragment_status.is_(None), Order.fragment_status != "success"),
+                            or_(
+                                and_(
+                                    Order.product_type == "stars",
+                                    or_(Order.fragment_status.is_(None), Order.fragment_status != "success"),
+                                ),
+                                and_(
+                                    Order.product_type == "gift",
+                                    or_(Order.gift_status.is_(None), Order.gift_status != "success"),
+                                ),
+                            ),
                         ),
                     )
                 )
@@ -415,9 +466,105 @@ async def _shutdown_tasks():
     if _platega_client is not None:
         await _platega_client.aclose()
         _platega_client = None
+    await close_gift_client()
 
 
 async def _fulfill_order_if_needed(order: Order, db) -> None:
+    if order.product_type == "gift":
+        if order.status != "paid":
+            return
+        if (order.gift_status or "").lower() == "success":
+            return
+
+        claim = db.execute(
+            text(
+                """
+                UPDATE orders
+                SET gift_in_progress = TRUE,
+                    gift_attempts = COALESCE(gift_attempts, 0) + 1
+                WHERE order_id = :order_id
+                  AND (gift_in_progress IS NULL OR gift_in_progress = FALSE)
+                  AND (gift_status IS NULL OR gift_status != 'success')
+                """
+            ),
+            {"order_id": order.order_id},
+        )
+        db.commit()
+        if claim.rowcount == 0:
+            return
+
+        last_error = None
+        for delay in (0, 2, 5):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                message_text = _build_gift_message(order, db)
+                chat_id = order.recipient
+                if isinstance(chat_id, str) and chat_id.isdigit():
+                    chat_id = int(chat_id)
+                await send_star_gift(
+                    chat_id=chat_id,
+                    gift_id=int(order.gift_id or 0),
+                    text=message_text,
+                    hide_my_name=order.gift_hide_name,
+                    pay_for_upgrade=order.gift_pay_for_upgrade,
+                )
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                logger.exception("[GIFT] Failed to send gift")
+
+        if last_error:
+            err_text = str(last_error)
+            if "PEER_INVALID" in err_text:
+                order.gift_status = "peer_invalid"
+                order.gift_last_error = err_text
+                order.gift_in_progress = False
+                db.commit()
+                await _notify_admin(
+                    f"⚠️ Gift delivery blocked (peer invalid)\n"
+                    f"order_id={order.order_id}\n"
+                    f"user_id={order.user_id}\n"
+                    f"recipient={order.recipient}\n"
+                    f"error={order.gift_last_error}"
+                )
+                try:
+                    await _safe_send_user_notice(
+                        order,
+                        "Не удалось доставить подарок: получатель недоступен.\n"
+                        "Укажите @username получателя или убедитесь, что аккаунт продавца уже общался с ним.",
+                    )
+                except Exception:
+                    logger.exception("[BOT] Failed to send gift peer notice")
+                return
+
+            order.status = "failed"
+            order.gift_status = "failed"
+            order.gift_last_error = err_text
+            order.gift_in_progress = False
+            db.commit()
+            _release_promo_reservation(order, db)
+            await _notify_admin(
+                f"❗ Gift delivery failed\n"
+                f"order_id={order.order_id}\n"
+                f"user_id={order.user_id}\n"
+                f"error={order.gift_last_error}"
+            )
+            return
+
+        order.gift_status = "success"
+        order.gift_in_progress = False
+        db.commit()
+        try:
+            await _safe_send_user_message(order)
+        except Exception:
+            logger.exception("[BOT] Failed to send user message")
+
+        await _send_gift_audit_if_needed(order, db)
+        _redeem_promo_if_needed(order, db)
+        return
+
     if order.product_type != "stars":
         return
     if (order.fragment_status or "").lower() == "success":
@@ -480,6 +627,21 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
     _consume_bonus(order, db)
     await _send_audit_if_needed(order, db)
 
+    _redeem_promo_if_needed(order, db)
+
+    user = db.query(User).filter(User.user_id == order.user_id).first()
+    if user and user.referrer_id and order.quantity:
+        percent = _get_setting_int(db, "REFERRAL_PERCENT", REFERRAL_PERCENT)
+        bonus = int(order.quantity * percent / 100)
+        if bonus > 0:
+            referrer = db.query(User).filter(User.user_id == user.referrer_id).first()
+            if not referrer:
+                referrer = User(user_id=user.referrer_id)
+                db.add(referrer)
+                db.commit()
+
+
+def _redeem_promo_if_needed(order: Order, db) -> None:
     if order.promo_code and not order.promo_redeemed:
         promo = _load_promo(order.promo_code, db)
         if promo:
@@ -498,16 +660,19 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
             ).delete()
             db.commit()
 
-    user = db.query(User).filter(User.user_id == order.user_id).first()
-    if user and user.referrer_id and order.quantity:
-        percent = _get_setting_int(db, "REFERRAL_PERCENT", REFERRAL_PERCENT)
-        bonus = int(order.quantity * percent / 100)
-        if bonus > 0:
-            referrer = db.query(User).filter(User.user_id == user.referrer_id).first()
-            if not referrer:
-                referrer = User(user_id=user.referrer_id)
-                db.add(referrer)
-                db.commit()
+
+def _build_gift_message(order: Order, db) -> str | None:
+    base_text = (order.gift_text or "").strip()
+    if not order.gift_with_signature:
+        return base_text or None
+
+    signature = (order.gift_signature or "").strip()
+    if not signature:
+        return base_text or None
+
+    if base_text:
+        return f\"{base_text}\\n— {signature}\"
+    return f\"— {signature}\"
                 db.refresh(referrer)
             referrer.referral_balance_stars = (referrer.referral_balance_stars or 0) + bonus
             earning = ReferralEarning(
@@ -1002,6 +1167,9 @@ def _create_order(
     user_username: str | None = None,
 ) -> Order:
     order_id = str(uuid.uuid4())
+    ttl_minutes = 10
+    if provider == "tg_stars":
+        ttl_minutes = int(os.getenv("TG_STARS_ORDER_TTL_MIN", "1440"))
 
     db_order = Order(
         order_id=order_id,
@@ -1014,12 +1182,19 @@ def _create_order(
         amount=order_in.amount,
         amount_rub=order_in.amount_rub,
         amount_rub_original=order_in.amount_rub,
+        gift_id=order_in.gift_id,
+        gift_title=getattr(order_in, "gift_title", None),
+        gift_text=order_in.gift_text,
+        gift_hide_name=order_in.gift_hide_name,
+        gift_pay_for_upgrade=order_in.gift_pay_for_upgrade,
+        gift_with_signature=order_in.gift_with_signature,
+        gift_signature=order_in.gift_signature,
         currency=currency or "RUB",
         status="created",
         payment_provider=provider,
         payment_method=payment_method,
         timestamp=now_msk(),
-        expires_at=now_msk() + timedelta(minutes=10)
+        expires_at=now_msk() + timedelta(minutes=ttl_minutes)
     )
 
     db.add(db_order)
@@ -1044,6 +1219,7 @@ def _include_orders_and_webhooks() -> None:
         SessionLocal=SessionLocal,
         Order=Order,
         PromoReservation=PromoReservation,
+        GiftCatalog=GiftCatalog,
         MSK=MSK,
         PLATEGA_PAYMENT_METHOD=PLATEGA_PAYMENT_METHOD,
         TONCONNECT_WALLET_ADDRESS=TONCONNECT_WALLET_ADDRESS,

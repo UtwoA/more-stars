@@ -618,6 +618,21 @@
   </div>
 </div>
 
+<div id="gift-peer-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="gift-peer-title">
+  <div class="modal-card">
+    <h3 id="gift-peer-title" data-i18n="gift_peer_title">Получатель недоступен</h3>
+    <div id="gift-peer-desc" style="margin-top:6px;color:var(--muted);font-size:13px;" data-i18n="gift_peer_desc">
+      Укажите @username или ID получателя, чтобы доставить подарок.
+    </div>
+    <div style="margin-top:12px;">
+      <input id="gift-peer-recipient" type="text" class="qty" placeholder="@username или 123456789" data-i18n-placeholder="gift_peer_placeholder" />
+      <div id="gift-peer-error" style="margin-top:8px;color:#ff4d4f;font-size:12px;display:none;"></div>
+    </div>
+    <button id="gift-peer-submit" class="btn" style="margin-top:12px;" data-i18n="gift_peer_submit">Отправить повторно</button>
+    <button id="gift-peer-close" class="btn secondary" style="margin-top:10px;" data-i18n="close">Закрыть</button>
+  </div>
+</div>
+
     <section id="shop" class="page active">
       <img src="icon-1.png" alt="More Stars" class="logo" loading="eager" fetchpriority="high" decoding="sync" />
       <div id="promo-banner" class="card" style="display:none;">
@@ -796,6 +811,7 @@ let currentPurchase = {
   title: null,
   price: null
 };
+let pendingGiftOrderId = null;
 let bonusBalance = 0;
 let bonusExpiresAt = null;
 const BUILD_VERSION = "2026-02-26-01";
@@ -973,6 +989,13 @@ const translations = {
       promo_apply: "Применить",
       promo_applied: "Промокод активирован: скидка",
       promo_invalid: "Промокод недействителен"
+      ,
+      gift_peer_title: "Получатель недоступен",
+      gift_peer_desc: "Укажите @username или ID получателя, чтобы доставить подарок.",
+      gift_peer_placeholder: "@username или 123456789",
+      gift_peer_submit: "Отправить повторно",
+      gift_peer_invalid: "Введите @username или ID получателя.",
+      gift_peer_sent: "Пробуем доставить подарок..."
     },
     en: {
       // History
@@ -1059,6 +1082,13 @@ const translations = {
       promo_apply: "Apply",
       promo_applied: "Promo applied: discount",
       promo_invalid: "Invalid promo code"
+      ,
+      gift_peer_title: "Recipient unavailable",
+      gift_peer_desc: "Enter @username or user ID to deliver the gift.",
+      gift_peer_placeholder: "@username or 123456789",
+      gift_peer_submit: "Retry delivery",
+      gift_peer_invalid: "Enter @username or recipient ID.",
+      gift_peer_sent: "Attempting gift delivery..."
     }
   };
 
@@ -1182,6 +1212,11 @@ document.getElementById("pay-cryptobot").onclick = async () => {
         if (!statusData) return;
         console.log("Проверка статуса:", statusData);
 
+        if (statusData.product_type === "gift" && statusData.gift_status === "peer_invalid") {
+          clearInterval(interval);
+          openGiftPeerModal(statusData);
+          return;
+        }
         if (statusData.status === "paid") {
           clearInterval(interval);
           const title = formatOrderProduct(statusData);
@@ -1298,6 +1333,11 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
         if (!statusData) return;
         console.log("Проверка статуса:", statusData);
 
+        if (statusData.product_type === "gift" && statusData.gift_status === "peer_invalid") {
+          clearInterval(interval);
+          openGiftPeerModal(statusData);
+          return;
+        }
         if (statusData.status === "paid") {
           clearInterval(interval);
           const title = formatOrderProduct(statusData);
@@ -1386,6 +1426,11 @@ document.getElementById("pay-ton").onclick = async () => {
     const interval = setInterval(async () => {
       const statusData = await fetchJsonWithAuth(`/orders/${orderId}`, {headers: getAuthHeaders()});
       if (!statusData) return;
+      if (statusData.product_type === "gift" && statusData.gift_status === "peer_invalid") {
+        clearInterval(interval);
+        openGiftPeerModal(statusData);
+        return;
+      }
       if (statusData.status === "paid") {
         clearInterval(interval);
         const title = formatOrderProduct(statusData);
@@ -1458,6 +1503,64 @@ rafflePrizeModal.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") rafflePrizeModal.classList.remove("open");
 });
+const giftPeerModal = document.getElementById("gift-peer-modal");
+const giftPeerClose = document.getElementById("gift-peer-close");
+const giftPeerSubmit = document.getElementById("gift-peer-submit");
+if (giftPeerClose) {
+  giftPeerClose.addEventListener("click", closeGiftPeerModal);
+}
+if (giftPeerModal) {
+  giftPeerModal.addEventListener("click", (e) => {
+    if (e.target === giftPeerModal) closeGiftPeerModal();
+  });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeGiftPeerModal();
+});
+if (giftPeerSubmit) {
+  giftPeerSubmit.addEventListener("click", async () => {
+    const input = document.getElementById("gift-peer-recipient");
+    const error = document.getElementById("gift-peer-error");
+    if (!input) return;
+    const recipient = normalizeGiftRecipientInput(input.value);
+    if (!recipient) {
+      if (error) {
+        error.textContent = translations[currentLang]?.gift_peer_invalid || "Введите @username или ID.";
+        error.style.display = "block";
+      }
+      return;
+    }
+
+    const userId = getNumericUserId();
+    if (!userId || !pendingGiftOrderId) return;
+
+    giftPeerSubmit.disabled = true;
+    if (error) {
+      error.textContent = translations[currentLang]?.gift_peer_sent || "Attempting gift delivery...";
+      error.style.display = "block";
+      error.style.color = "var(--muted)";
+    }
+
+    try {
+      const res = await fetch(`/orders/gift/recipient?order_id=${encodeURIComponent(pendingGiftOrderId)}&user_id=${encodeURIComponent(userId)}&recipient=${encodeURIComponent(recipient)}`, {
+        method: "POST",
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) {
+        throw new Error(`Gift recipient update failed: ${res.status}`);
+      }
+      pollGiftDelivery(pendingGiftOrderId);
+    } catch (e) {
+      if (error) {
+        error.textContent = translations[currentLang]?.gift_peer_invalid || "Введите @username или ID.";
+        error.style.display = "block";
+        error.style.color = "#ff4d4f";
+      }
+    } finally {
+      giftPeerSubmit.disabled = false;
+    }
+  });
+}
 const historyModal = document.getElementById("history-modal");
 document.getElementById("history-more").addEventListener("click", () => {
   const userId = getNumericUserId();
@@ -1870,6 +1973,9 @@ function formatOrderProduct(order) {
   if (order.product_type === "ads" && order.amount) {
     return `Ads amount ${order.amount}`;
   }
+  if (order.product_type === "gift") {
+    return order.gift_title ? `Gift ${order.gift_title}` : `Gift #${order.gift_id || ""}`.trim();
+  }
   return order.product_type || "Unknown";
 }
 
@@ -1893,10 +1999,15 @@ function renderHistoryItems(orders, targetListId, targetEmptyId, compact = false
     if(order.status === "paid") color = "green";
     else if(order.status === "failed") color = "red";
 
+    let giftStatus = "";
+    if (order.product_type === "gift" && order.gift_status && order.gift_status !== "success") {
+      giftStatus = ` • gift: ${order.gift_status}`;
+    }
+
     card.innerHTML = `
       <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
       <div style="font-size:12px;color:var(--muted);">Кому: ${order.recipient || "self"}</div>
-      <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}</div>
+      <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}${giftStatus}</div>
     `;
     if (list) list.appendChild(card);
   });
@@ -2294,6 +2405,68 @@ function isValidTelegramUsername(val) {
   return /^[a-zA-Z0-9_]{5,32}$/.test(val);
 }
 
+function normalizeGiftRecipientInput(raw) {
+  let val = (raw || "").trim();
+  if (!val) return null;
+  if (val === "self" || val === "me") return "self";
+  if (/^\d+$/.test(val)) return val;
+  if (!val.startsWith('@')) val = `@${val}`;
+  if (!isValidTelegramUsername(val)) return null;
+  return val;
+}
+
+function openGiftPeerModal(order) {
+  const modal = document.getElementById("gift-peer-modal");
+  if (!modal) return;
+  pendingGiftOrderId = order?.order_id || null;
+  const input = document.getElementById("gift-peer-recipient");
+  const error = document.getElementById("gift-peer-error");
+  if (error) {
+    error.style.display = "none";
+    error.textContent = "";
+  }
+  if (input) {
+    const currentRecipient = order?.recipient || "";
+    input.value = currentRecipient && currentRecipient !== "self" ? currentRecipient : "";
+    input.focus();
+  }
+  modal.classList.add("open");
+}
+
+function closeGiftPeerModal() {
+  const modal = document.getElementById("gift-peer-modal");
+  if (modal) modal.classList.remove("open");
+  pendingGiftOrderId = null;
+}
+
+async function pollGiftDelivery(orderId) {
+  const interval = setInterval(async () => {
+    const statusData = await fetchJsonWithAuth(`/orders/${orderId}`, {headers: getAuthHeaders()});
+    if (!statusData) return;
+    if (statusData.gift_status === "success" || (statusData.status === "paid" && statusData.gift_status === "success")) {
+      clearInterval(interval);
+      closeGiftPeerModal();
+      const title = formatOrderProduct(statusData);
+      openSuccessPage({ title }, statusData.order_id);
+      return;
+    }
+    if (statusData.gift_status === "peer_invalid") {
+      clearInterval(interval);
+      openGiftPeerModal(statusData);
+      const error = document.getElementById("gift-peer-error");
+      if (error) {
+        error.textContent = translations[currentLang]?.gift_peer_invalid || "Recipient is not доступен.";
+        error.style.display = "block";
+      }
+    }
+    if (statusData.status === "failed") {
+      clearInterval(interval);
+      closeGiftPeerModal();
+      openFailurePage(currentPurchase);
+    }
+  }, 5000);
+}
+
 function proceedToPayment(recipient) {
   currentPurchase.recipient = recipient;
   openPaymentPage(currentPurchase);
@@ -2335,6 +2508,12 @@ function applyTranslations() {
       el.textContent = translations[currentLang][key];
     }
   });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (translations[currentLang] && translations[currentLang][key]) {
+      el.setAttribute('placeholder', translations[currentLang][key]);
+    }
+  });
 }
 
 function setLanguage(lang) {
@@ -2353,6 +2532,11 @@ async function initWebApp() {
       return;
     }
 
+    if (data.product_type === "gift" && data.gift_status === "peer_invalid") {
+      openGiftPeerModal(data);
+      switchPage("shop");
+      return;
+    }
     if (data.show_success_page) {
       // Показываем страницу успешной оплаты
       openSuccessPage({ title: formatOrderProduct(data) }, data.order_id);
@@ -2400,6 +2584,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    if (data.product_type === "gift" && data.gift_status === "peer_invalid") {
+      openGiftPeerModal(data);
+      switchPage("shop");
+      return;
+    }
     if (data.show_success_page) {
       openSuccessPage({title: formatOrderProduct(data)}, data.order_id);
     } else if (data.show_failure_page) {

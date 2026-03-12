@@ -24,6 +24,17 @@ def init_schema(*, engine, base) -> None:
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount FLOAT"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount_nano VARCHAR"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_id INTEGER"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_title VARCHAR"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_text TEXT"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_hide_name BOOLEAN"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_pay_for_upgrade BOOLEAN"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_with_signature BOOLEAN"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_signature VARCHAR"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_status VARCHAR"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_in_progress BOOLEAN"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_attempts INTEGER"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_last_error VARCHAR"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR"))
         conn.execute(
@@ -37,6 +48,25 @@ def init_schema(*, engine, base) -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS gift_catalog (
+                    id SERIAL PRIMARY KEY,
+                    gift_id INTEGER UNIQUE NOT NULL,
+                    title VARCHAR NOT NULL,
+                    price_rub FLOAT NOT NULL,
+                    price_stars INTEGER,
+                    image_url VARCHAR,
+                    sort_order INTEGER,
+                    active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+        )
+        conn.execute(text("ALTER TABLE gift_catalog ADD COLUMN IF NOT EXISTS price_stars INTEGER"))
         conn.execute(
             text(
                 """
@@ -187,4 +217,3 @@ def init_schema(*, engine, base) -> None:
         )
 
     logger.info("DB schema ensured")
-

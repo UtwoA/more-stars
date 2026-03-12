@@ -42,6 +42,17 @@ class Order(Base):
     profit_rub = Column(Float, nullable=True)
     usdtrub_rate = Column(Float, nullable=True)
     cost_per_star = Column(Float, nullable=True)
+    gift_id = Column(Integer, nullable=True)
+    gift_title = Column(String, nullable=True)
+    gift_text = Column(Text, nullable=True)
+    gift_hide_name = Column(Boolean, nullable=True)
+    gift_pay_for_upgrade = Column(Boolean, nullable=True)
+    gift_with_signature = Column(Boolean, nullable=True)
+    gift_signature = Column(String, nullable=True)
+    gift_status = Column(String, nullable=True)
+    gift_in_progress = Column(Boolean, nullable=True)
+    gift_attempts = Column(Integer, nullable=True)
+    gift_last_error = Column(String, nullable=True)
     audit_sent = Column(Boolean, default=False)
     timestamp = Column(DateTime(timezone=True), default=now_msk)
     success_page_shown = Column(Integer, default=0)
@@ -163,4 +174,19 @@ class AdminSetting(Base):
 
     key = Column(String, primary_key=True, index=True)
     value = Column(String, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=now_msk)
+
+
+class GiftCatalog(Base):
+    __tablename__ = "gift_catalog"
+
+    id = Column(Integer, primary_key=True, index=True)
+    gift_id = Column(Integer, unique=True, index=True, nullable=False)
+    title = Column(String, nullable=False)
+    price_rub = Column(Float, nullable=False)
+    price_stars = Column(Integer, nullable=True)
+    image_url = Column(String, nullable=True)
+    sort_order = Column(Integer, nullable=True)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=now_msk)
     updated_at = Column(DateTime(timezone=True), default=now_msk)

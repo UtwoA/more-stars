@@ -15,7 +15,7 @@ from ..raffle_utils import next_draw_dates, raffle_period
 from ..schemas import AnalyticsEventPayload
 from ..settings_store import get_setting, get_setting_float
 from ..telegram_initdata import extract_user_id, verify_telegram_init_data, touch_user_from_initdata
-from ..models import Order, User
+from ..models import Order, User, GiftCatalog
 from ..utils import now_msk
 
 logger = logging.getLogger("public_api")
@@ -105,6 +105,31 @@ async def promo_validate(code: str = Query(...)):
         if not promo:
             return {"valid": False}
         return {"valid": True, "percent": promo.percent}
+    finally:
+        db.close()
+
+
+@router.get("/gifts")
+async def gifts_list():
+    db = SessionLocal()
+    try:
+        gifts = db.query(GiftCatalog).filter(GiftCatalog.active.is_(True)).order_by(
+            GiftCatalog.sort_order.asc().nulls_last(),
+            GiftCatalog.id.asc(),
+        ).all()
+        return {
+            "gifts": [
+                {
+                    "gift_id": g.gift_id,
+                    "title": g.title,
+                    "price_rub": g.price_rub,
+                    "price_stars": g.price_stars,
+                    "image_url": g.image_url,
+                    "sort_order": g.sort_order,
+                }
+                for g in gifts
+            ]
+        }
     finally:
         db.close()
 

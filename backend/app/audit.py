@@ -43,3 +43,20 @@ def format_audit_line_with_user(order, display_name: str | None) -> str:
         f"order: {order.order_id}"
     )
 
+
+def format_gift_audit_line_with_user(order, display_name: str | None) -> str:
+    when = order.timestamp.astimezone(MSK).strftime("%Y-%m-%d %H:%M")
+    if display_name:
+        user = f"{display_name} (id {order.user_id})"
+    elif getattr(order, "user_username", None):
+        user = f"{order.user_username} (id {order.user_id})"
+    else:
+        user = f"id {order.user_id}"
+    pay = format_payment_method(order)
+    title = order.gift_title or f"#{order.gift_id}" if order.gift_id else "gift"
+    anon = "anon" if order.gift_hide_name else "public"
+    signature = "signature" if order.gift_with_signature else "no-sign"
+    return (
+        f"🎁 {title} | {user} | {pay} | {anon} | {signature} | {when}\n"
+        f"order: {order.order_id}"
+    )

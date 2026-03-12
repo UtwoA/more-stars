@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 from aiogram import Bot, types
 from aiogram import Dispatcher
 from aiogram.filters import Command
@@ -15,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _bot: Bot | None = None
+logger = logging.getLogger("bot")
 
 
 def get_bot() -> Bot:
@@ -389,6 +391,42 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
 
         await message.answer(f"Рассылка завершена. Успешно: {sent}, Ошибок: {failed}.")
 
+    @dp.pre_checkout_query()
+    async def handle_pre_checkout(pre_checkout_query: types.PreCheckoutQuery):
+        try:
+            await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+        except Exception:
+            logger.exception("[BOT] Failed to answer pre_checkout")
+
+    @dp.message(lambda message: message.successful_payment is not None)
+    async def handle_successful_payment(message: Message):
+        try:
+            payment = message.successful_payment
+            if not payment:
+                return
+            order_id = payment.invoice_payload
+            if not order_id:
+                return
+
+            db = SessionLocal()
+            try:
+                order = db.query(Order).filter(Order.order_id == order_id).first()
+                if not order:
+                    return
+                if order.status == "paid":
+                    return
+                order.status = "paid"
+                order.payment_provider = "tg_stars"
+                order.payment_method = "invoice"
+                charge_id = payment.telegram_payment_charge_id or payment.provider_payment_charge_id
+                if charge_id:
+                    order.payment_invoice_id = str(charge_id)
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            logger.exception("[BOT] Failed to handle successful payment")
+
     return dp
 
 
@@ -498,5 +536,10 @@ async def send_user_message(chat_id: int, product_name: str):
 
 
 async def send_admin_message(chat_id: int, text: str):
+    bot = get_bot()
+    await bot.send_message(chat_id=chat_id, text=text)
+
+
+async def send_user_notice(chat_id: int, text: str):
     bot = get_bot()
     await bot.send_message(chat_id=chat_id, text=text)

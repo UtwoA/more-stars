@@ -40,6 +40,8 @@ async def build_admin_report(target_date: datetime | None = None) -> str:
         total_paid = sum((o.amount_rub or 0) for o in paid_orders)
         total_stars = sum((o.quantity or 0) for o in paid_orders if o.product_type == "stars")
         total_bonus = sum((o.bonus_stars_applied or 0) for o in paid_orders if o.product_type == "stars")
+        total_gifts = sum(1 for o in paid_orders if o.product_type == "gift")
+        total_gifts_revenue = sum((o.amount_rub or 0) for o in paid_orders if o.product_type == "gift")
         avg_check = (total_paid / len(paid_orders)) if paid_orders else 0.0
 
         by_provider = {}
@@ -76,6 +78,8 @@ async def build_admin_report(target_date: datetime | None = None) -> str:
             f"Сумма оплат: {total_paid:.2f} ₽",
             f"Средний чек: {avg_check:.2f} ₽",
             f"Звёзд куплено: {int(total_stars)} (+{int(total_bonus)} бонус)",
+            f"Подарков куплено: {int(total_gifts)}",
+            f"Выручка подарков: {total_gifts_revenue:.2f} ₽",
             f"Неудачных заказов: {failed_orders}",
             f"Ошибок Platega: {platega_failures}",
             f"По провайдерам: {by_provider}",

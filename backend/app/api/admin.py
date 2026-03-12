@@ -1,4 +1,5 @@
 import random
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -9,7 +10,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import desc, func, or_, text
 
 from .. import admin_auth
-from ..audit import format_audit_line_with_user
+from ..audit import format_audit_line_with_user, format_gift_audit_line_with_user
 from ..config import (
     ADMIN_REPORT_TIME,
     API_AUTH_KEY,
@@ -21,7 +22,7 @@ from ..config import (
 from ..crypto import get_moex_usdrub_rate, get_usdtrub_rate
 from ..database import SessionLocal
 from ..money import round_money
-from ..models import AdminSetting, BonusClaim, BonusGrant, Order, PromoCode, User
+from ..models import AdminSetting, BonusClaim, BonusGrant, Order, PromoCode, User, GiftCatalog
 from ..raffle_utils import raffle_period
 from ..schemas import (
     AdminBonusBulkPayload,
@@ -29,12 +30,14 @@ from ..schemas import (
     AdminOtpVerify,
     AdminPromoPayload,
     AdminSettingsPayload,
+    AdminGiftPayload,
 )
 from ..security import constant_time_eq
 from ..settings_store import get_setting, get_setting_float, get_setting_int
 from ..utils import now_msk
 
 router = APIRouter()
+logger = logging.getLogger("admin_api")
 
 
 @router.post("/admin/otp/request")
@@ -172,8 +175,8 @@ async def admin_bonus_claim(request: Request, payload: AdminBonusClaimPayload):
 
 
 @router.post("/admin/bonus/grant_bulk")
-async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayload):
-    admin_auth.require_admin(request)
+    async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayload):
+        admin_auth.require_admin(request)
     raw_ids = payload.user_ids or ""
     tokens = re.split(r"[\\s,;]+", raw_ids.strip())
     user_ids = [t for t in tokens if t]
@@ -197,6 +200,64 @@ async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayloa
             created += 1
         db.commit()
         return {"status": "ok", "created": created}
+    finally:
+        db.close()
+
+
+@router.get("/admin/gifts")
+async def admin_gifts_list(request: Request):
+    admin_auth.require_admin(request)
+    db = SessionLocal()
+    try:
+        gifts = db.query(GiftCatalog).order_by(GiftCatalog.sort_order.asc().nulls_last(), GiftCatalog.id.asc()).all()
+        return {
+            "gifts": [
+                {
+                    "gift_id": g.gift_id,
+                    "title": g.title,
+                    "price_rub": g.price_rub,
+                    "price_stars": g.price_stars,
+                    "image_url": g.image_url,
+                    "sort_order": g.sort_order,
+                    "active": bool(g.active),
+                }
+                for g in gifts
+            ]
+        }
+    finally:
+        db.close()
+
+
+@router.post("/admin/gifts")
+async def admin_gifts_upsert(request: Request, payload: AdminGiftPayload):
+    admin_auth.require_admin(request)
+    db = SessionLocal()
+    try:
+        gift = db.query(GiftCatalog).filter(GiftCatalog.gift_id == payload.gift_id).first()
+        if not gift:
+            gift = GiftCatalog(
+                gift_id=payload.gift_id,
+                title=payload.title.strip(),
+                price_rub=payload.price_rub,
+                price_stars=payload.price_stars,
+                image_url=payload.image_url,
+                sort_order=payload.sort_order,
+                active=payload.active,
+            )
+            db.add(gift)
+        else:
+            gift.title = payload.title.strip()
+            gift.price_rub = payload.price_rub
+            gift.price_stars = payload.price_stars
+            gift.image_url = payload.image_url
+            gift.sort_order = payload.sort_order
+            gift.active = payload.active
+            gift.updated_at = now_msk()
+        db.commit()
+        return {"status": "ok", "gift_id": gift.gift_id}
+    except Exception:
+        logger.exception("[ADMIN] Failed to upsert gift")
+        raise
     finally:
         db.close()
 
@@ -259,6 +320,67 @@ async def admin_audit_recent(request: Request, limit: int = 200):
     finally:
         db.close()
     items = [format_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
+    return {"items": items}
+
+
+@router.get("/admin/audit/gifts/today")
+async def admin_audit_gifts_today(request: Request):
+    admin_auth.require_admin(request)
+    now = now_msk()
+    since = now - timedelta(hours=24)
+    db = SessionLocal()
+    try:
+        orders = (
+            db.query(Order)
+            .filter(
+                Order.product_type == "gift",
+                Order.status == "paid",
+                Order.timestamp >= since,
+            )
+            .order_by(Order.timestamp.desc())
+            .limit(200)
+            .all()
+        )
+        user_ids = list({o.user_id for o in orders})
+        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
+        user_map = {}
+        for u in users:
+            if u.username:
+                user_map[u.user_id] = f"@{u.username}"
+            elif u.full_name:
+                user_map[u.user_id] = u.full_name
+    finally:
+        db.close()
+    items = [format_gift_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
+    return {"items": items}
+
+
+@router.get("/admin/audit/gifts/recent")
+async def admin_audit_gifts_recent(request: Request, limit: int = 200):
+    admin_auth.require_admin(request)
+    db = SessionLocal()
+    try:
+        orders = (
+            db.query(Order)
+            .filter(
+                Order.product_type == "gift",
+                Order.status == "paid",
+            )
+            .order_by(Order.timestamp.desc())
+            .limit(min(limit, 500))
+            .all()
+        )
+        user_ids = list({o.user_id for o in orders})
+        users = db.query(User).filter(User.user_id.in_(user_ids)).all() if user_ids else []
+        user_map = {}
+        for u in users:
+            if u.username:
+                user_map[u.user_id] = f"@{u.username}"
+            elif u.full_name:
+                user_map[u.user_id] = u.full_name
+    finally:
+        db.close()
+    items = [format_gift_audit_line_with_user(o, user_map.get(o.user_id)) for o in orders]
     return {"items": items}
 
 

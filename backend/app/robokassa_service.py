@@ -28,6 +28,11 @@ def _product_label(order) -> str:
         return f"Premium {order.months} month(s)"
     if order.product_type == "ads":
         return f"Ads amount {order.amount}"
+    if order.product_type == "gift":
+        if getattr(order, "gift_title", None):
+            return f"Gift {order.gift_title}"
+        if getattr(order, "gift_id", None):
+            return f"Gift #{order.gift_id}"
     return order.product_type
 
 def _receipt_json_for_order(order) -> str:
