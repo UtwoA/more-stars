@@ -394,39 +394,59 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
     @dp.pre_checkout_query()
     async def handle_pre_checkout(pre_checkout_query: types.PreCheckoutQuery):
         try:
+            logger.info(
+                "[BOT] Pre-checkout: user_id=%s payload=%s total=%s currency=%s",
+                pre_checkout_query.from_user.id,
+                pre_checkout_query.invoice_payload,
+                pre_checkout_query.total_amount,
+                pre_checkout_query.currency,
+            )
             await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
         except Exception:
             logger.exception("[BOT] Failed to answer pre_checkout")
 
+    async def _apply_successful_payment(message: Message) -> None:
+        payment = message.successful_payment
+        if not payment:
+            return
+        order_id = payment.invoice_payload
+        if not order_id:
+            return
+        logger.info("[BOT] Successful payment for order %s", order_id)
+
+        db = SessionLocal()
+        try:
+            order = db.query(Order).filter(Order.order_id == order_id).first()
+            if not order:
+                logger.warning("[BOT] Order not found for payload %s", order_id)
+                return
+            if order.status == "paid":
+                return
+            order.status = "paid"
+            order.payment_provider = "tg_stars"
+            order.payment_method = "invoice"
+            charge_id = payment.telegram_payment_charge_id or payment.provider_payment_charge_id
+            if charge_id:
+                order.payment_invoice_id = str(charge_id)
+            db.commit()
+        finally:
+            db.close()
+
     @dp.message(lambda message: message.successful_payment is not None)
     async def handle_successful_payment(message: Message):
         try:
-            payment = message.successful_payment
-            if not payment:
-                return
-            order_id = payment.invoice_payload
-            if not order_id:
-                return
-            logger.info("[BOT] Successful payment for order %s", order_id)
-
-            db = SessionLocal()
-            try:
-                order = db.query(Order).filter(Order.order_id == order_id).first()
-                if not order:
-                    return
-                if order.status == "paid":
-                    return
-                order.status = "paid"
-                order.payment_provider = "tg_stars"
-                order.payment_method = "invoice"
-                charge_id = payment.telegram_payment_charge_id or payment.provider_payment_charge_id
-                if charge_id:
-                    order.payment_invoice_id = str(charge_id)
-                db.commit()
-            finally:
-                db.close()
+            await _apply_successful_payment(message)
         except Exception:
             logger.exception("[BOT] Failed to handle successful payment")
+
+    @dp.message()
+    async def handle_any_message(message: Message):
+        if message.successful_payment is None:
+            return
+        try:
+            await _apply_successful_payment(message)
+        except Exception:
+            logger.exception("[BOT] Failed to handle successful payment (fallback)")
 
     return dp
 
