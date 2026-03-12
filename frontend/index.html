@@ -958,11 +958,11 @@ const premiumPackagesData = [
   {id:'prem6', title:'Premium 6 месяцев', price:'1399 ₽', badge:'HOT', product_type:'premium', months:6}
 ];
 let giftsPackages = [
-  {id:'gift-5922558454332916696', title:'Елка НГ', price:'79 ₽', product_type:'gift', gift_id:5922558454332916696},
-  {id:'gift-5956217000635139069', title:'Мишка НГ', price:'79 ₽', product_type:'gift', gift_id:5956217000635139069},
-  {id:'gift-5801108895304779062', title:'Сердце 14 февраля', price:'79 ₽', product_type:'gift', gift_id:5801108895304779062},
-  {id:'gift-5800655655995968830', title:'Мишка 14 февраля', price:'79 ₽', product_type:'gift', gift_id:5800655655995968830},
-  {id:'gift-5866352046986232958', title:'Мишка 8 марта', price:'79 ₽', product_type:'gift', gift_id:5866352046986232958}
+  {id:'gift-5922558454332916696', title:'Елка НГ', price:'79 ₽', product_type:'gift', gift_id:'5922558454332916696'},
+  {id:'gift-5956217000635139069', title:'Мишка НГ', price:'79 ₽', product_type:'gift', gift_id:'5956217000635139069'},
+  {id:'gift-5801108895304779062', title:'Сердце 14 февраля', price:'79 ₽', product_type:'gift', gift_id:'5801108895304779062'},
+  {id:'gift-5800655655995968830', title:'Мишка 14 февраля', price:'79 ₽', product_type:'gift', gift_id:'5800655655995968830'},
+  {id:'gift-5866352046986232958', title:'Мишка 8 марта', price:'79 ₽', product_type:'gift', gift_id:'5866352046986232958'}
 ];
 
 let recipientMode = 'self';
@@ -1965,11 +1965,11 @@ async function loadGiftsCatalog() {
     return;
   }
   const mapped = data.gifts.map((g) => ({
-    id: `gift-${g.gift_id}`,
-    title: g.title || `Gift #${g.gift_id}`,
+    id: `gift-${String(g.gift_id)}`,
+    title: g.title || `Gift #${String(g.gift_id)}`,
     price: formatRubPrice(Number(g.price_rub || 0)),
     product_type: "gift",
-    gift_id: g.gift_id
+    gift_id: String(g.gift_id)
   }));
   if (mapped.length > 0) {
     giftsPackages = mapped;
@@ -2545,7 +2545,7 @@ function renderGrid(gridId, packages){
       // Обычные карточки
       if (pkg.product_type === 'gift') {
         card.classList.add('gift-card');
-        const imgSrc = `gifts/${pkg.gift_id}.gif`;
+        const imgSrc = `gifts/${String(pkg.gift_id)}.gif`;
         const img = el('img', { src: imgSrc, alt: pkg.title, loading: 'lazy' });
         const fallback = el('div', { class: 'gift-fallback', text: 'GIFT' });
         img.onerror = () => {

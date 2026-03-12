@@ -213,7 +213,7 @@ async def admin_gifts_list(request: Request):
         return {
             "gifts": [
                 {
-                    "gift_id": g.gift_id,
+                    "gift_id": str(g.gift_id),
                     "title": g.title,
                     "price_rub": g.price_rub,
                     "price_stars": g.price_stars,
