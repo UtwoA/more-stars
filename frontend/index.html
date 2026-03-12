@@ -1443,11 +1443,7 @@ if (raffleWheelCenter) {
     const prizeLink = document.getElementById("raffle-prize-link");
     const url = prizeLink?.getAttribute("href") || "";
     if (url) {
-      if (window.Telegram?.WebApp?.openLink) {
-        window.Telegram.WebApp.openLink(url);
-      } else {
-        window.open(url, "_blank");
-      }
+      window.open(url, "_blank");
       return;
     }
     rafflePrizeModal.classList.add("open");
