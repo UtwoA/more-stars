@@ -212,6 +212,8 @@ async def auth_and_rate_limit(request: Request, call_next):
         return await call_next(request)
     if path.startswith("/webhook/"):
         return await call_next(request)
+    if path.startswith("/orders/stars/confirm"):
+        return await call_next(request)
 
     if path.startswith("/orders/"):
         if not _rate_limiter.allow(_client_ip(request)):

@@ -1562,9 +1562,29 @@ document.getElementById("pay-stars").onclick = async () => {
     }
     const data = await response.json();
     const link = data?.invoice_link;
+    const invoiceSlug = data?.invoice_slug || (link ? link.split("/").pop().split("?")[0] : "");
     if (!link) {
       alert("Инвойс не получен. Попробуйте позже.");
       return;
+    }
+    const handleInvoiceClosed = async (event) => {
+      if (!event) return;
+      if (event.status === "paid") {
+        try {
+          await fetch(`/orders/stars/confirm?order_id=${encodeURIComponent(data.order_id)}&invoice_slug=${encodeURIComponent(invoiceSlug)}&status=paid`, {
+            method: "POST",
+            headers: getAuthHeaders()
+          });
+        } catch (e) {
+          console.error("Failed to confirm stars payment:", e);
+        }
+      }
+      if (window.Telegram?.WebApp?.offEvent) {
+        window.Telegram.WebApp.offEvent("invoiceClosed", handleInvoiceClosed);
+      }
+    };
+    if (window.Telegram?.WebApp?.onEvent) {
+      window.Telegram.WebApp.onEvent("invoiceClosed", handleInvoiceClosed);
     }
     if (window.Telegram?.WebApp?.openInvoice) {
       window.Telegram.WebApp.openInvoice(link);

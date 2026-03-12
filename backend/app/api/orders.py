@@ -348,7 +348,9 @@ def build_orders_router(ctx) -> APIRouter:
                 logger.exception("[STARS] Failed to create invoice link")
                 raise HTTPException(status_code=502, detail="Telegram Stars invoice error") from exc
 
+            slug = invoice_link.rsplit("/", 1)[-1].split("?", 1)[0]
             db_order.payment_url = invoice_link
+            db_order.payment_invoice_id = slug
             db.commit()
 
             return {
@@ -356,6 +358,7 @@ def build_orders_router(ctx) -> APIRouter:
                 "invoice_link": invoice_link,
                 "amount_stars": amount_stars,
                 "amount_rub": _round_money(db_order.amount_rub),
+                "invoice_slug": slug,
             }
         finally:
             db.close()
@@ -382,6 +385,27 @@ def build_orders_router(ctx) -> APIRouter:
             db.commit()
 
             await _fulfill_order_if_needed(order, db)
+            return {"status": "ok"}
+        finally:
+            db.close()
+
+    @router.post("/orders/stars/confirm")
+    async def confirm_stars_payment(order_id: str = Query(...), invoice_slug: str = Query(...), status: str = Query(...)):
+        db = SessionLocal()
+        try:
+            order = db.query(Order).filter(Order.order_id == order_id).first()
+            if not order:
+                raise HTTPException(status_code=404, detail="Order not found")
+            if order.payment_provider != "tg_stars":
+                raise HTTPException(status_code=400, detail="Not a stars invoice order")
+            if invoice_slug and order.payment_invoice_id and invoice_slug != order.payment_invoice_id:
+                raise HTTPException(status_code=400, detail="Invoice mismatch")
+            if status != "paid":
+                return {"status": "ignored"}
+            if order.status != "paid":
+                order.status = "paid"
+                db.commit()
+                await _fulfill_order_if_needed(order, db)
             return {"status": "ok"}
         finally:
             db.close()
