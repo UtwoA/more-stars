@@ -352,10 +352,10 @@ def build_orders_router(ctx) -> APIRouter:
             db.commit()
 
             return {
-                \"order_id\": db_order.order_id,
-                \"invoice_link\": invoice_link,
-                \"amount_stars\": amount_stars,
-                \"amount_rub\": _round_money(db_order.amount_rub),
+                "order_id": db_order.order_id,
+                "invoice_link": invoice_link,
+                "amount_stars": amount_stars,
+                "amount_rub": _round_money(db_order.amount_rub),
             }
         finally:
             db.close()
