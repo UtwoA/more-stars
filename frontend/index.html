@@ -723,6 +723,12 @@
                 CryptoBot
               </button>
               <div class="fee-label">Комиссия 3%</div>
+
+              <button class="btn secondary" id="pay-stars"
+                      style="border-color:#f5a623;color:#f5a623" data-i18n="stars_pay">
+                Stars
+              </button>
+              <div class="fee-label">Комиссия 0%</div>
             </div>
             <div id="payment-link" style="display:none;margin-top:12px;font-size:12px;">
               <div id="payment-method-label" style="color:var(--muted);margin-bottom:6px;">Выбранный способ оплаты: —</div>
@@ -902,7 +908,13 @@ const premiumPackagesData = [
   {id:'prem3', title:'Premium 3 месяца', price:'999 ₽', badge:'Premium', product_type:'premium', months:3},
   {id:'prem6', title:'Premium 6 месяцев', price:'1399 ₽', badge:'HOT', product_type:'premium', months:6}
 ];
-let giftsPackages = [];
+let giftsPackages = [
+  {id:'gift-5922558454332916696', title:'Елка НГ', price:'79 ₽', product_type:'gift', gift_id:5922558454332916696},
+  {id:'gift-5956217000635139069', title:'Мишка НГ', price:'79 ₽', product_type:'gift', gift_id:5956217000635139069},
+  {id:'gift-5801108895304779062', title:'Сердце 14 февраля', price:'79 ₽', product_type:'gift', gift_id:5801108895304779062},
+  {id:'gift-5800655655995968830', title:'Мишка 14 февраля', price:'79 ₽', product_type:'gift', gift_id:5800655655995968830},
+  {id:'gift-5866352046986232958', title:'Мишка 8 марта', price:'79 ₽', product_type:'gift', gift_id:5866352046986232958}
+];
 
 let recipientMode = 'self';
 let currentPage = 'shop';
@@ -976,6 +988,7 @@ const translations = {
       sbp: "СБП",
       card: "Карта",
       ton_pay: "TON Wallet",
+      stars_pay: "Stars",
 
       // Success
       payment_successful: "Оплата прошла успешно! 🎉",
@@ -1070,6 +1083,7 @@ const translations = {
       sbp: "SBP",
       card: "Card",
       ton_pay: "TON Wallet",
+      stars_pay: "Stars",
 
       // Success
       payment_successful: "Payment successful! 🎉",
@@ -1205,6 +1219,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
         quantity: currentPurchase.quantity || null,
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
+        gift_id: currentPurchase.gift_id || null,
         amount_rub: amountValue,
         currency: "USDT",
         promo_code: promoCode || null
@@ -1284,6 +1299,7 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
         quantity: currentPurchase.quantity || null,
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
+        gift_id: currentPurchase.gift_id || null,
         amount_rub: amountValue,
         payment_method: paymentMethod,
         promo_code: promoCode || null
@@ -1406,6 +1422,7 @@ document.getElementById("pay-ton").onclick = async () => {
         quantity: currentPurchase.quantity || null,
         months: currentPurchase.months || null,
         amount: currentPurchase.amount || null,
+        gift_id: currentPurchase.gift_id || null,
         amount_rub: amountValue,
         promo_code: promoCode || null
       })
@@ -1460,6 +1477,76 @@ document.getElementById("pay-ton").onclick = async () => {
   } catch (err) {
     console.error("Ошибка оплаты через TON:", err);
     alert("Не удалось создать платеж. Попробуйте еще раз.");
+  }
+};
+
+document.getElementById("pay-stars").onclick = async () => {
+  if (!currentPurchase || !currentPurchase.price) return alert("Сначала выберите товар");
+  if (currentPurchase.product_type !== "gift") {
+    const msg = currentLang === "ru"
+      ? "Оплата звёздами доступна только для подарков."
+      : "Stars payment is available only for gifts.";
+    alert(msg);
+    return;
+  }
+  try {
+    const userId = getNumericUserId();
+    if (!userId) return;
+    const amountValue = parseFloat(String(currentPurchase.price).replace(/[^0-9.]/g, ""));
+    const response = await fetch("/orders/stars", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...getAuthHeaders()},
+      body: JSON.stringify({
+        user_id: userId,
+        recipient: currentPurchase.recipient || "self",
+        product_type: "gift",
+        gift_id: currentPurchase.gift_id || null,
+        amount_rub: amountValue,
+        promo_code: promoCode || null
+      })
+    });
+    if (!response.ok) {
+      const raw = await response.text();
+      console.error("Stars invoice error:", response.status, raw);
+      alert("Не удалось создать инвойс звёздами. Попробуйте позже.");
+      return;
+    }
+    const data = await response.json();
+    const link = data?.invoice_link;
+    if (!link) {
+      alert("Инвойс не получен. Попробуйте позже.");
+      return;
+    }
+    if (window.Telegram?.WebApp?.openInvoice) {
+      window.Telegram.WebApp.openInvoice(link);
+    } else if (window.Telegram?.WebApp?.openTelegramLink) {
+      window.Telegram.WebApp.openTelegramLink(link);
+    } else {
+      window.open(link, "_blank");
+    }
+
+    const orderId = data.order_id;
+    const interval = setInterval(async () => {
+      const statusData = await fetchJsonWithAuth(`/orders/${orderId}`, {headers: getAuthHeaders()});
+      if (!statusData) return;
+      if (statusData.product_type === "gift" && statusData.gift_status === "peer_invalid") {
+        clearInterval(interval);
+        openGiftPeerModal(statusData);
+        return;
+      }
+      if (statusData.status === "paid") {
+        clearInterval(interval);
+        const title = formatOrderProduct(statusData);
+        openSuccessPage({ title }, statusData.order_id);
+      }
+      if (statusData.status === "failed") {
+        clearInterval(interval);
+        openFailurePage(currentPurchase);
+      }
+    }, 5000);
+  } catch (err) {
+    console.error("Ошибка оплаты звёздами:", err);
+    alert("Не удалось создать инвойс звёздами. Попробуйте позже.");
   }
 };
 
@@ -1653,6 +1740,10 @@ document.getElementById("promo-apply").addEventListener("click", async () => {
 
 // Кнопка "Себе"
 document.getElementById('to-self').addEventListener('click', () => {
+  if (currentPurchase?.product_type === "gift") {
+    proceedToPayment("self");
+    return;
+  }
   let selfUser = null;
   if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
     const user = Telegram.WebApp.initDataUnsafe.user;
@@ -1743,6 +1834,14 @@ function openPaymentPage(pkg) {
   });
   const paymentLink = document.getElementById("payment-link");
   if (paymentLink) paymentLink.style.display = "none";
+  const payStarsBtn = document.getElementById("pay-stars");
+  if (payStarsBtn) {
+    if (pkg.product_type === "gift") {
+      payStarsBtn.style.display = "inline-flex";
+    } else {
+      payStarsBtn.style.display = "none";
+    }
+  }
 
   switchPage("payment-page");
 }
@@ -1814,16 +1913,18 @@ async function loadPublicSettings() {
 async function loadGiftsCatalog() {
   const data = await fetchJsonWithAuth("/api/gifts", {headers: getAuthHeaders()});
   if (!data || !Array.isArray(data.gifts)) {
-    giftsPackages = [];
     return;
   }
-  giftsPackages = data.gifts.map((g) => ({
+  const mapped = data.gifts.map((g) => ({
     id: `gift-${g.gift_id}`,
     title: g.title || `Gift #${g.gift_id}`,
     price: formatRubPrice(Number(g.price_rub || 0)),
     product_type: "gift",
     gift_id: g.gift_id
   }));
+  if (mapped.length > 0) {
+    giftsPackages = mapped;
+  }
 }
 
 // Рендер популярных пакетов
