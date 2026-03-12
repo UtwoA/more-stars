@@ -1168,6 +1168,17 @@ def _create_order(
     user_username: str | None = None,
 ) -> Order:
     order_id = str(uuid.uuid4())
+    recipient = order_in.recipient
+    if order_in.product_type == "gift":
+        if recipient in ("self", "me", "@unknown"):
+            if user_username:
+                recipient = user_username
+            elif str(order_in.user_id).isdigit():
+                recipient = str(order_in.user_id)
+            else:
+                recipient = "self"
+    if recipient == "@unknown":
+        recipient = "self"
     ttl_minutes = 10
     if provider == "tg_stars":
         ttl_minutes = int(os.getenv("TG_STARS_ORDER_TTL_MIN", "1440"))
@@ -1176,7 +1187,7 @@ def _create_order(
         order_id=order_id,
         user_id=order_in.user_id,
         user_username=user_username,
-        recipient=order_in.recipient if order_in.recipient != "@unknown" else "self",
+        recipient=recipient,
         product_type=order_in.product_type,
         quantity=order_in.quantity,
         months=order_in.months,
