@@ -175,8 +175,8 @@ async def admin_bonus_claim(request: Request, payload: AdminBonusClaimPayload):
 
 
 @router.post("/admin/bonus/grant_bulk")
-    async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayload):
-        admin_auth.require_admin(request)
+async def admin_bonus_grant_bulk(request: Request, payload: AdminBonusBulkPayload):
+    admin_auth.require_admin(request)
     raw_ids = payload.user_ids or ""
     tokens = re.split(r"[\\s,;]+", raw_ids.strip())
     user_ids = [t for t in tokens if t]
