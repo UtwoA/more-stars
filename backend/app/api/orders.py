@@ -332,11 +332,11 @@ def build_orders_router(ctx) -> APIRouter:
                 db.query(PromoReservation).filter(
                     PromoReservation.code == db_order.promo_code,
                     PromoReservation.user_id == db_order.user_id,
-                ).update({\"order_id\": db_order.order_id})
+                ).update({"order_id": db_order.order_id})
                 db.commit()
 
-            title = order.gift_title or f\"Gift #{order.gift_id}\"
-            description = f\"Star gift: {title}\"
+            title = order.gift_title or f"Gift #{order.gift_id}"
+            description = f"Star gift: {title}"
             try:
                 invoice_link = await create_stars_invoice_link(
                     title=title,
