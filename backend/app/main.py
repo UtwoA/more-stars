@@ -455,9 +455,8 @@ async def _startup_tasks():
     asyncio.create_task(_daily_report_loop())
     asyncio.create_task(_availability_loop())
     asyncio.create_task(_payment_sync_loop())
-    if ADMIN_CHAT_IDS:
-        dp = build_admin_dispatcher(ADMIN_CHAT_IDS)
-        asyncio.create_task(dp.start_polling(get_bot()))
+    dp = build_admin_dispatcher(ADMIN_CHAT_IDS or set())
+    asyncio.create_task(dp.start_polling(get_bot()))
 
 
 @app.on_event("shutdown")

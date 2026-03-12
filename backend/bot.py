@@ -407,6 +407,7 @@ def build_admin_dispatcher(admin_chat_ids: set[str]):
             order_id = payment.invoice_payload
             if not order_id:
                 return
+            logger.info("[BOT] Successful payment for order %s", order_id)
 
             db = SessionLocal()
             try:
