@@ -639,6 +639,16 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
                 referrer = User(user_id=user.referrer_id)
                 db.add(referrer)
                 db.commit()
+                db.refresh(referrer)
+            referrer.referral_balance_stars = (referrer.referral_balance_stars or 0) + bonus
+            earning = ReferralEarning(
+                referrer_id=user.referrer_id,
+                referred_user_id=order.user_id,
+                order_id=order.order_id,
+                stars=bonus
+            )
+            db.add(earning)
+            db.commit()
 
 
 def _redeem_promo_if_needed(order: Order, db) -> None:
@@ -671,18 +681,8 @@ def _build_gift_message(order: Order, db) -> str | None:
         return base_text or None
 
     if base_text:
-        return f\"{base_text}\\n— {signature}\"
-    return f\"— {signature}\"
-                db.refresh(referrer)
-            referrer.referral_balance_stars = (referrer.referral_balance_stars or 0) + bonus
-            earning = ReferralEarning(
-                referrer_id=user.referrer_id,
-                referred_user_id=order.user_id,
-                order_id=order.order_id,
-                stars=bonus
-            )
-            db.add(earning)
-            db.commit()
+        return f"{base_text}\n— {signature}"
+    return f"— {signature}"
 
 
 def _extract_order_id(data: dict) -> str | None:
