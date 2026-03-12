@@ -108,6 +108,10 @@ TONCONNECT_WALLET_ADDRESS = os.getenv("TONCONNECT_WALLET_ADDRESS")
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
 ALLOW_UNVERIFIED_INITDATA = os.getenv("ALLOW_UNVERIFIED_INITDATA", "false").lower() in ("1", "true", "yes")
 ADMIN_OTP_SECRET = os.getenv("ADMIN_OTP_SECRET") or API_AUTH_KEY or "change-me"
+PLATEGA_RETRY_ATTEMPTS = int(os.getenv("PLATEGA_RETRY_ATTEMPTS", "3"))
+PLATEGA_RETRY_BASE = float(os.getenv("PLATEGA_RETRY_BASE", "0.6"))
+PLATEGA_RETRY_JITTER = float(os.getenv("PLATEGA_RETRY_JITTER", "0.4"))
+PLATEGA_NOTIFY_TTL_SECONDS = int(os.getenv("PLATEGA_NOTIFY_TTL_SECONDS", "300"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -116,6 +120,8 @@ app = FastAPI()
 app.include_router(admin_router)
 app.include_router(public_router)
 _last_app_up: bool | None = None
+_platega_client: httpx.AsyncClient | None = None
+_platega_notify_last: dict[str, float] = {}
 
 
 def _product_label(order: Order) -> str:
@@ -403,6 +409,14 @@ async def _startup_tasks():
         asyncio.create_task(dp.start_polling(get_bot()))
 
 
+@app.on_event("shutdown")
+async def _shutdown_tasks():
+    global _platega_client
+    if _platega_client is not None:
+        await _platega_client.aclose()
+        _platega_client = None
+
+
 async def _fulfill_order_if_needed(order: Order, db) -> None:
     if order.product_type != "stars":
         return
@@ -665,6 +679,55 @@ async def _create_crypto_invoice(amount: float, currency: str, order_id: str, re
         return r.json()
 
 
+def _get_platega_client() -> httpx.AsyncClient:
+    global _platega_client
+    if _platega_client is None:
+        timeout = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
+        limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
+        _platega_client = httpx.AsyncClient(timeout=timeout, limits=limits)
+    return _platega_client
+
+
+def _platega_should_notify(key: str) -> bool:
+    now_ts = asyncio.get_event_loop().time()
+    last = _platega_notify_last.get(key)
+    if last and now_ts - last < PLATEGA_NOTIFY_TTL_SECONDS:
+        return False
+    _platega_notify_last[key] = now_ts
+    return True
+
+
+async def _platega_request(method: str, url: str, *, headers: dict, json_body: dict | None, order_id: str, action: str) -> httpx.Response:
+    retry_statuses = {502, 503, 504, 520, 521, 522, 523, 524}
+    last_exc: Exception | None = None
+
+    for attempt in range(1, PLATEGA_RETRY_ATTEMPTS + 1):
+        try:
+            client = _get_platega_client()
+            if json_body is None:
+                r = await client.request(method, url, headers=headers)
+            else:
+                r = await client.request(method, url, headers=headers, json=json_body)
+            if r.status_code in retry_statuses and attempt < PLATEGA_RETRY_ATTEMPTS:
+                delay = (PLATEGA_RETRY_BASE * (2 ** (attempt - 1))) + random.uniform(0, PLATEGA_RETRY_JITTER)
+                await asyncio.sleep(delay)
+                continue
+            return r
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+            last_exc = exc
+            if attempt < PLATEGA_RETRY_ATTEMPTS:
+                delay = (PLATEGA_RETRY_BASE * (2 ** (attempt - 1))) + random.uniform(0, PLATEGA_RETRY_JITTER)
+                await asyncio.sleep(delay)
+                continue
+            break
+
+    if last_exc is None:
+        last_exc = RuntimeError("PLATEGA request failed without response")
+    if _platega_should_notify(f"{action}:{order_id}"):
+        await notify_admin(f"[PLATEGA] {action} failed for order {order_id}: {type(last_exc).__name__}")
+    raise last_exc
+
+
 async def _create_platega_payment(amount_rub: float, order_id: str) -> dict:
     return await _create_platega_payment_with_method(amount_rub, order_id, PLATEGA_PAYMENT_METHOD)
 
@@ -690,17 +753,20 @@ async def _create_platega_payment_with_method(amount_rub: float, order_id: str, 
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            f"{PLATEGA_BASE_URL}/transaction/process",
-            json=payload,
-            headers=headers,
-            timeout=20
-        )
-        if r.status_code >= 400:
-            logger.error("[PLATEGA] Create payment failed: %s %s", r.status_code, r.text)
-            r.raise_for_status()
-        resp = r.json()
+    r = await _platega_request(
+        "POST",
+        f"{PLATEGA_BASE_URL}/transaction/process",
+        headers=headers,
+        json_body=payload,
+        order_id=order_id,
+        action="create_payment",
+    )
+    if r.status_code >= 400:
+        logger.error("[PLATEGA] Create payment failed: %s %s", r.status_code, r.text)
+        if r.status_code >= 500 and _platega_should_notify(f"create_payment_http:{order_id}"):
+            await notify_admin(f"[PLATEGA] create_payment HTTP {r.status_code} for order {order_id}")
+        r.raise_for_status()
+    resp = r.json()
 
     with engine.begin() as conn:
         conn.execute(
@@ -735,14 +801,20 @@ async def _get_platega_status(transaction_id: str, order_id: str | None = None) 
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"{PLATEGA_BASE_URL}/transaction/{transaction_id}",
-            headers=headers,
-            timeout=20
-        )
+    r = await _platega_request(
+        "GET",
+        f"{PLATEGA_BASE_URL}/transaction/{transaction_id}",
+        headers=headers,
+        json_body=None,
+        order_id=order_id or transaction_id,
+        action="get_status",
+    )
+    if r.status_code >= 400:
+        logger.error("[PLATEGA] Status request failed: %s %s", r.status_code, r.text)
+        if r.status_code >= 500 and _platega_should_notify(f"get_status_http:{order_id or transaction_id}"):
+            await notify_admin(f"[PLATEGA] get_status HTTP {r.status_code} for order {order_id or transaction_id}")
         r.raise_for_status()
-        resp = r.json()
+    resp = r.json()
 
     with engine.begin() as conn:
         conn.execute(

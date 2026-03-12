@@ -151,16 +151,17 @@ def build_orders_router(ctx) -> APIRouter:
                     f"user_id={db_order.user_id}\n"
                     f"detail={detail}"
                 )
-                try:
-                    payment = await _create_platega_payment_with_method(
-                        db_order.amount_rub, db_order.order_id, payment_method
-                    )
-                except Exception:
-                    raise HTTPException(status_code=502, detail=detail) from exc
-            except httpx.ReadTimeout:
-                logger.error("[PLATEGA] Create payment timed out")
-                await _notify_admin(f"⚠️ Platega timeout\n" f"order_id={db_order.order_id}\n" f"user_id={db_order.user_id}")
-                raise HTTPException(status_code=504, detail="Platega timeout")
+                status_code = 502 if (exc.response is None or exc.response.status_code >= 500) else exc.response.status_code
+                raise HTTPException(status_code=status_code, detail=detail) from exc
+            except httpx.RequestError as exc:
+                logger.error("[PLATEGA] Create payment network error: %s", exc)
+                await _notify_admin(
+                    f"⚠️ Platega network error\n"
+                    f"order_id={db_order.order_id}\n"
+                    f"user_id={db_order.user_id}\n"
+                    f"error={type(exc).__name__}"
+                )
+                raise HTTPException(status_code=503, detail="Platega unavailable") from exc
 
             transaction_id = payment.get("transactionId")
             if not transaction_id:
@@ -332,4 +333,3 @@ def build_orders_router(ctx) -> APIRouter:
             db.close()
 
     return router
-
