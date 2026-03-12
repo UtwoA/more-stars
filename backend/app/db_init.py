@@ -24,7 +24,7 @@ def init_schema(*, engine, base) -> None:
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS audit_sent BOOLEAN DEFAULT FALSE"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount FLOAT"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount_nano VARCHAR"))
-        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_id INTEGER"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_id BIGINT"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_title VARCHAR"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_text TEXT"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_hide_name BOOLEAN"))
@@ -53,7 +53,7 @@ def init_schema(*, engine, base) -> None:
                 """
                 CREATE TABLE IF NOT EXISTS gift_catalog (
                     id SERIAL PRIMARY KEY,
-                    gift_id INTEGER UNIQUE NOT NULL,
+                    gift_id BIGINT UNIQUE NOT NULL,
                     title VARCHAR NOT NULL,
                     price_rub FLOAT NOT NULL,
                     price_stars INTEGER,
@@ -67,6 +67,8 @@ def init_schema(*, engine, base) -> None:
             )
         )
         conn.execute(text("ALTER TABLE gift_catalog ADD COLUMN IF NOT EXISTS price_stars INTEGER"))
+        conn.execute(text("ALTER TABLE gift_catalog ALTER COLUMN gift_id TYPE BIGINT"))
+        conn.execute(text("ALTER TABLE orders ALTER COLUMN gift_id TYPE BIGINT"))
         conn.execute(
             text(
                 """

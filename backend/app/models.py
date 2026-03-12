@@ -1,5 +1,5 @@
 from datetime import timedelta
-from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text, BigInteger
 from .database import Base
 from .utils import now_msk
 
@@ -42,7 +42,7 @@ class Order(Base):
     profit_rub = Column(Float, nullable=True)
     usdtrub_rate = Column(Float, nullable=True)
     cost_per_star = Column(Float, nullable=True)
-    gift_id = Column(Integer, nullable=True)
+    gift_id = Column(BigInteger, nullable=True)
     gift_title = Column(String, nullable=True)
     gift_text = Column(Text, nullable=True)
     gift_hide_name = Column(Boolean, nullable=True)
@@ -181,7 +181,7 @@ class GiftCatalog(Base):
     __tablename__ = "gift_catalog"
 
     id = Column(Integer, primary_key=True, index=True)
-    gift_id = Column(Integer, unique=True, index=True, nullable=False)
+    gift_id = Column(BigInteger, unique=True, index=True, nullable=False)
     title = Column(String, nullable=False)
     price_rub = Column(Float, nullable=False)
     price_stars = Column(Integer, nullable=True)
