@@ -700,8 +700,8 @@ def _build_gift_message(order: Order, db) -> str | None:
         return base_text or None
 
     if base_text:
-        return f"{base_text}\n— {signature}"
-    return f"— {signature}"
+        return f"{base_text}\n{signature}"
+    return signature
 
 
 def _extract_order_id(data: dict) -> str | None:
