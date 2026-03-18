@@ -19,6 +19,8 @@ def _build_client() -> Client:
     if not api_id or not api_hash:
         raise RuntimeError("PYROFORK_API_ID/PYROFORK_API_HASH are not set")
 
+    proxy = _get_proxy()
+
     session_string = os.getenv("PYROFORK_SESSION_STRING")
     session_value = os.getenv("PYROFORK_SESSION", "example.session")
     workdir = os.getenv("PYROFORK_SESSION_DIR")
@@ -30,6 +32,7 @@ def _build_client() -> Client:
             api_hash=api_hash,
             session_string=session_string,
             workdir=workdir,
+            proxy=proxy,
         )
 
     session_name = session_value
@@ -60,7 +63,53 @@ def _build_client() -> Client:
         api_id=int(api_id),
         api_hash=api_hash,
         workdir=workdir,
+        proxy=proxy,
     )
+
+
+def _get_proxy() -> dict | None:
+    proxy_type = (os.getenv("PYROFORK_PROXY_TYPE") or "").strip().lower()
+    if not proxy_type:
+        return None
+
+    host = (os.getenv("PYROFORK_PROXY_HOST") or "").strip()
+    port_raw = (os.getenv("PYROFORK_PROXY_PORT") or "").strip()
+    if not host or not port_raw:
+        raise RuntimeError(
+            "PYROFORK_PROXY_HOST/PYROFORK_PROXY_PORT are required when PYROFORK_PROXY_TYPE is set"
+        )
+
+    try:
+        port = int(port_raw)
+    except ValueError as exc:
+        raise RuntimeError("PYROFORK_PROXY_PORT must be an integer") from exc
+
+    proxy: dict = {
+        "scheme": proxy_type,
+        "hostname": host,
+        "port": port,
+    }
+
+    if proxy_type == "mtproto":
+        secret = (os.getenv("PYROFORK_PROXY_SECRET") or "").strip()
+        if not secret:
+            raise RuntimeError("PYROFORK_PROXY_SECRET is required for mtproto proxy")
+        proxy["secret"] = secret
+
+    username = (os.getenv("PYROFORK_PROXY_USER") or "").strip()
+    password = (os.getenv("PYROFORK_PROXY_PASSWORD") or "").strip()
+    if username:
+        proxy["username"] = username
+    if password:
+        proxy["password"] = password
+
+    rdns_raw = (os.getenv("PYROFORK_PROXY_RDNS") or "").strip().lower()
+    if rdns_raw in {"1", "true", "yes", "on"}:
+        proxy["rdns"] = True
+    elif rdns_raw in {"0", "false", "no", "off"}:
+        proxy["rdns"] = False
+
+    return proxy
 
 
 async def _get_client() -> Client:
