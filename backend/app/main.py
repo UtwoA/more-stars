@@ -114,6 +114,10 @@ PLATEGA_RETRY_ATTEMPTS = int(os.getenv("PLATEGA_RETRY_ATTEMPTS", "3"))
 PLATEGA_RETRY_BASE = float(os.getenv("PLATEGA_RETRY_BASE", "0.6"))
 PLATEGA_RETRY_JITTER = float(os.getenv("PLATEGA_RETRY_JITTER", "0.4"))
 PLATEGA_NOTIFY_TTL_SECONDS = int(os.getenv("PLATEGA_NOTIFY_TTL_SECONDS", "300"))
+PLATEGA_TIMEOUT_CONNECT = float(os.getenv("PLATEGA_TIMEOUT_CONNECT", "10"))
+PLATEGA_TIMEOUT_READ = float(os.getenv("PLATEGA_TIMEOUT_READ", "20"))
+PLATEGA_TIMEOUT_WRITE = float(os.getenv("PLATEGA_TIMEOUT_WRITE", "20"))
+PLATEGA_TIMEOUT_POOL = float(os.getenv("PLATEGA_TIMEOUT_POOL", "10"))
 GIFT_RETRY_INTERVAL_SEC = int(os.getenv("GIFT_RETRY_INTERVAL_SEC", "60"))
 GIFT_RETRY_MAX_ATTEMPTS = int(os.getenv("GIFT_RETRY_MAX_ATTEMPTS", "12"))
 
@@ -941,7 +945,12 @@ async def _create_crypto_invoice(amount: float, currency: str, order_id: str, re
 def _get_platega_client() -> httpx.AsyncClient:
     global _platega_client
     if _platega_client is None:
-        timeout = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
+        timeout = httpx.Timeout(
+            connect=PLATEGA_TIMEOUT_CONNECT,
+            read=PLATEGA_TIMEOUT_READ,
+            write=PLATEGA_TIMEOUT_WRITE,
+            pool=PLATEGA_TIMEOUT_POOL,
+        )
         limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
         _platega_client = httpx.AsyncClient(timeout=timeout, limits=limits)
     return _platega_client
