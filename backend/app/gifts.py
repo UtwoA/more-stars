@@ -25,6 +25,8 @@ def _build_client() -> Client:
     session_value = os.getenv("PYROFORK_SESSION", "example.session")
     workdir = os.getenv("PYROFORK_SESSION_DIR")
 
+    no_updates = os.getenv("PYROFORK_NO_UPDATES", "true").strip().lower() in {"1", "true", "yes", "on"}
+
     if session_string:
         return Client(
             name=":memory:",
@@ -33,6 +35,7 @@ def _build_client() -> Client:
             session_string=session_string,
             workdir=workdir,
             proxy=proxy,
+            no_updates=no_updates,
         )
 
     session_name = session_value
@@ -64,6 +67,7 @@ def _build_client() -> Client:
         api_hash=api_hash,
         workdir=workdir,
         proxy=proxy,
+        no_updates=no_updates,
     )
 
 
@@ -141,44 +145,57 @@ async def send_star_gift(
     hide_my_name: Optional[bool] = None,
     pay_for_upgrade: Optional[bool] = None,
 ) -> bool:
-    client = await _get_client()
+    last_exc: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            client = await _get_client()
 
-    peer = await client.resolve_peer(chat_id)
-    if text is None:
-        text = ""
-    text, entities = (await utils.parse_text_entities(client, text, parse_mode, entities)).values()
-    if entities is None:
-        entities = []
+            peer = await client.resolve_peer(chat_id)
+            if text is None:
+                text = ""
+            text, entities = (await utils.parse_text_entities(client, text, parse_mode, entities)).values()
+            if entities is None:
+                entities = []
 
-    invoice = raw.types.InputInvoiceStarGift(
-        peer=peer,
-        gift_id=gift_id,
-        hide_name=hide_my_name,
-        include_upgrade=pay_for_upgrade,
-        message=raw.types.TextWithEntities(text=text, entities=entities) if text else None,
-    )
-
-    try:
-        form = await client.invoke(
-            raw.functions.payments.GetPaymentForm(
-                invoice=invoice,
+            invoice = raw.types.InputInvoiceStarGift(
+                peer=peer,
+                gift_id=gift_id,
+                hide_name=hide_my_name,
+                include_upgrade=pay_for_upgrade,
+                message=raw.types.TextWithEntities(text=text, entities=entities) if text else None,
             )
-        )
 
-        await client.invoke(
-            raw.functions.payments.SendStarsForm(
-                form_id=form.form_id,
-                invoice=invoice,
+            form = await client.invoke(
+                raw.functions.payments.GetPaymentForm(
+                    invoice=invoice,
+                )
             )
-        )
-    except RPCError as exc:
-        msg = str(exc)
-        if "PEER" in msg or "PEER_ID_INVALID" in msg or "USER_ID_INVALID" in msg:
-            logger.warning("[GIFT] Peer invalid or inaccessible: %s", msg)
-            raise RuntimeError(
-                "PEER_INVALID: recipient is not accessible. "
-                "Use @username or make sure the account has an existing chat/contact with the recipient."
-            ) from exc
-        raise
 
-    return True
+            await client.invoke(
+                raw.functions.payments.SendStarsForm(
+                    form_id=form.form_id,
+                    invoice=invoice,
+                )
+            )
+            return True
+        except RPCError as exc:
+            msg = str(exc)
+            if "PEER" in msg or "PEER_ID_INVALID" in msg or "USER_ID_INVALID" in msg:
+                logger.warning("[GIFT] Peer invalid or inaccessible: %s", msg)
+                raise RuntimeError(
+                    "PEER_INVALID: recipient is not accessible. "
+                    "Use @username or make sure the account has an existing chat/contact with the recipient."
+                ) from exc
+            last_exc = exc
+        except (OSError, ConnectionResetError, asyncio.TimeoutError) as exc:
+            last_exc = exc
+            logger.warning("[GIFT] Network error (attempt %s/3): %s", attempt, exc)
+            await close_gift_client()
+            await asyncio.sleep(1.5 * attempt)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("[GIFT] Unexpected error (attempt %s/3): %s", attempt, exc)
+            await close_gift_client()
+            await asyncio.sleep(1.5 * attempt)
+
+    raise RuntimeError("TEMPORARY_NETWORK_ERROR: failed to send gift after retries") from last_exc
