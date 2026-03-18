@@ -114,6 +114,8 @@ PLATEGA_RETRY_ATTEMPTS = int(os.getenv("PLATEGA_RETRY_ATTEMPTS", "3"))
 PLATEGA_RETRY_BASE = float(os.getenv("PLATEGA_RETRY_BASE", "0.6"))
 PLATEGA_RETRY_JITTER = float(os.getenv("PLATEGA_RETRY_JITTER", "0.4"))
 PLATEGA_NOTIFY_TTL_SECONDS = int(os.getenv("PLATEGA_NOTIFY_TTL_SECONDS", "300"))
+GIFT_RETRY_INTERVAL_SEC = int(os.getenv("GIFT_RETRY_INTERVAL_SEC", "60"))
+GIFT_RETRY_MAX_ATTEMPTS = int(os.getenv("GIFT_RETRY_MAX_ATTEMPTS", "12"))
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger("main")
@@ -437,7 +439,10 @@ async def _sync_pending_orders() -> None:
                                 ),
                                 and_(
                                     Order.product_type == "gift",
-                                    or_(Order.gift_status.is_(None), Order.gift_status != "success"),
+                                    or_(
+                                        Order.gift_status.is_(None),
+                                        Order.gift_status == "retry",
+                                    ),
                                 ),
                             ),
                         ),
@@ -469,12 +474,63 @@ async def _payment_sync_loop() -> None:
         await asyncio.sleep(15)
 
 
+def _is_temporary_gift_error(error_text: str | None) -> bool:
+    if not error_text:
+        return False
+    lowered = error_text.lower()
+    tokens = (
+        "temporary_network_error",
+        "connection lost",
+        "connectionreseterror",
+        "network error",
+        "timed out",
+        "timeout",
+    )
+    return any(token in lowered for token in tokens)
+
+
+async def _retry_failed_gifts() -> None:
+    db = SessionLocal()
+    try:
+        max_attempts = _get_setting_int(db, "GIFT_RETRY_MAX_ATTEMPTS", GIFT_RETRY_MAX_ATTEMPTS)
+        orders = (
+            db.query(Order)
+            .filter(
+                Order.product_type == "gift",
+                Order.status == "paid",
+                or_(Order.gift_status == "retry", Order.gift_status == "failed"),
+                or_(Order.gift_in_progress.is_(None), Order.gift_in_progress.is_(False)),
+                or_(Order.gift_attempts.is_(None), Order.gift_attempts < max_attempts),
+            )
+            .order_by(Order.timestamp.asc())
+            .limit(50)
+            .all()
+        )
+
+        for order in orders:
+            if order.gift_status == "failed" and not _is_temporary_gift_error(order.gift_last_error):
+                continue
+            await _fulfill_order_if_needed(order, db)
+    finally:
+        db.close()
+
+
+async def _gift_retry_loop() -> None:
+    while True:
+        try:
+            await _retry_failed_gifts()
+        except Exception:
+            logger.exception("[GIFT] Failed to retry gift deliveries")
+        await asyncio.sleep(GIFT_RETRY_INTERVAL_SEC)
+
+
 @app.on_event("startup")
 async def _startup_tasks():
     init_schema(engine=engine, base=Base)
     asyncio.create_task(_daily_report_loop())
     asyncio.create_task(_availability_loop())
     asyncio.create_task(_payment_sync_loop())
+    asyncio.create_task(_gift_retry_loop())
     dp = build_admin_dispatcher(ADMIN_CHAT_IDS or set())
     asyncio.create_task(dp.start_polling(get_bot()))
 
@@ -556,6 +612,25 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
                     )
                 except Exception:
                     logger.exception("[BOT] Failed to send gift peer notice")
+                return
+
+            if _is_temporary_gift_error(err_text):
+                max_attempts = _get_setting_int(db, "GIFT_RETRY_MAX_ATTEMPTS", GIFT_RETRY_MAX_ATTEMPTS)
+                order.gift_status = "retry"
+                order.gift_last_error = err_text
+                order.gift_in_progress = False
+                db.commit()
+                if (order.gift_attempts or 0) >= max_attempts:
+                    order.status = "failed"
+                    order.gift_status = "failed"
+                    db.commit()
+                    _release_promo_reservation(order, db)
+                    await _notify_admin(
+                        f"❗ Gift delivery failed (retries exceeded)\n"
+                        f"order_id={order.order_id}\n"
+                        f"user_id={order.user_id}\n"
+                        f"error={order.gift_last_error}"
+                    )
                 return
 
             order.status = "failed"
