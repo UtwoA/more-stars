@@ -91,10 +91,10 @@ def _get_proxy() -> dict | None:
     }
 
     if proxy_type == "mtproto":
-        secret = (os.getenv("PYROFORK_PROXY_SECRET") or "").strip()
-        if not secret:
-            raise RuntimeError("PYROFORK_PROXY_SECRET is required for mtproto proxy")
-        proxy["secret"] = secret
+        logger.warning(
+            "MTProto proxy type is not supported by Pyrogram. Proxy will be ignored."
+        )
+        return None
 
     username = (os.getenv("PYROFORK_PROXY_USER") or "").strip()
     password = (os.getenv("PYROFORK_PROXY_PASSWORD") or "").strip()
