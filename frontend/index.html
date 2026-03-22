@@ -271,6 +271,11 @@
       font-weight:800;
       color:#f1d7a3;
     }
+    .gift-card .title{
+      white-space: pre-line;
+      text-align: center;
+      line-height: 1.15;
+    }
     .gift-card .btn{
       background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
       color:var(--text);
@@ -2686,7 +2691,8 @@ function renderGrid(gridId, packages){
         };
         const media = el('div', { class: 'gift-media' }, [img, fallback]);
         const tag = el('div', { class: 'gift-tag', text: 'Gift' });
-        const title = el('div', { class: 'title', text: pkg.title });
+        const displayTitle = (pkg.title || "").replace(/^(\S+)\s+(.+)$/, "$1\n$2");
+        const title = el('div', { class: 'title', text: displayTitle || pkg.title });
         const price = el('div', { class: 'gift-price', text: pkg.price });
         const btn = el('button', { class: 'btn', text: 'buy', 'data-i18n': 'buy' });
         btn.addEventListener('click', () => openRecipientPage(pkg));
