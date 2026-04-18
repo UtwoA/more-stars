@@ -11,6 +11,44 @@ logger = logging.getLogger("gifts")
 _client: Client | None = None
 _client_started = False
 _client_lock = asyncio.Lock()
+_peer_cache: dict[str, object] = {}
+
+_RESOLVE_TIMEOUT_SEC = float(os.getenv("PYROFORK_RESOLVE_TIMEOUT_SEC", "10"))
+_RPC_TIMEOUT_SEC = float(os.getenv("PYROFORK_RPC_TIMEOUT_SEC", "20"))
+_STOP_TIMEOUT_SEC = float(os.getenv("PYROFORK_STOP_TIMEOUT_SEC", "5"))
+
+
+def _peer_cache_key(chat_id: Union[int, str]) -> str:
+    if isinstance(chat_id, int):
+        return f"i:{chat_id}"
+    value = str(chat_id).strip()
+    if value.isdigit():
+        return f"i:{int(value)}"
+    if value.startswith("@"):
+        value = value[1:]
+    return f"u:{value.lower()}"
+
+
+def _drop_peer_cache(chat_id: Union[int, str]) -> None:
+    _peer_cache.pop(_peer_cache_key(chat_id), None)
+
+
+async def _resolve_peer_cached(client: Client, chat_id: Union[int, str]):
+    key = _peer_cache_key(chat_id)
+    cached = _peer_cache.get(key)
+    if cached is not None:
+        return cached
+
+    normalized: Union[int, str]
+    if isinstance(chat_id, int):
+        normalized = chat_id
+    else:
+        value = str(chat_id).strip()
+        normalized = int(value) if value.isdigit() else value
+
+    peer = await asyncio.wait_for(client.resolve_peer(normalized), timeout=_RESOLVE_TIMEOUT_SEC)
+    _peer_cache[key] = peer
+    return peer
 
 
 def _build_client() -> Client:
@@ -131,7 +169,12 @@ async def close_gift_client() -> None:
     global _client, _client_started
     async with _client_lock:
         if _client is not None and _client_started:
-            await _client.stop()
+            try:
+                await asyncio.wait_for(_client.stop(), timeout=_STOP_TIMEOUT_SEC)
+            except Exception as exc:
+                # On broken network, Pyrogram stop may hang waiting for watchdog.
+                # We still reset local state so next attempt can build a fresh client.
+                logger.warning("[GIFT] Failed to stop client gracefully: %s", exc)
         _client = None
         _client_started = False
 
@@ -146,56 +189,75 @@ async def send_star_gift(
     pay_for_upgrade: Optional[bool] = None,
 ) -> bool:
     last_exc: Exception | None = None
+    source_chat_id: Union[int, str] = chat_id
+
     for attempt in range(1, 4):
         try:
             client = await _get_client()
 
-            peer = await client.resolve_peer(chat_id)
-            if text is None:
-                text = ""
-            text, entities = (await utils.parse_text_entities(client, text, parse_mode, entities)).values()
-            if entities is None:
-                entities = []
+            peer = await _resolve_peer_cached(client, source_chat_id)
+            text_value = text or ""
+            text_value, parsed_entities = (await utils.parse_text_entities(client, text_value, parse_mode, entities)).values()
+            if parsed_entities is None:
+                parsed_entities = []
 
             invoice = raw.types.InputInvoiceStarGift(
                 peer=peer,
                 gift_id=gift_id,
                 hide_name=hide_my_name,
                 include_upgrade=pay_for_upgrade,
-                message=raw.types.TextWithEntities(text=text, entities=entities) if text else None,
+                message=raw.types.TextWithEntities(text=text_value, entities=parsed_entities) if text_value else None,
             )
 
-            form = await client.invoke(
-                raw.functions.payments.GetPaymentForm(
-                    invoice=invoice,
-                )
+            form = await asyncio.wait_for(
+                client.invoke(
+                    raw.functions.payments.GetPaymentForm(
+                        invoice=invoice,
+                    )
+                ),
+                timeout=_RPC_TIMEOUT_SEC,
             )
 
-            await client.invoke(
-                raw.functions.payments.SendStarsForm(
-                    form_id=form.form_id,
-                    invoice=invoice,
-                )
+            await asyncio.wait_for(
+                client.invoke(
+                    raw.functions.payments.SendStarsForm(
+                        form_id=form.form_id,
+                        invoice=invoice,
+                    )
+                ),
+                timeout=_RPC_TIMEOUT_SEC,
             )
             return True
         except RPCError as exc:
             msg = str(exc)
-            if "PEER" in msg or "PEER_ID_INVALID" in msg or "USER_ID_INVALID" in msg:
+            msg_upper = msg.upper()
+            if "PEER" in msg_upper or "PEER_ID_INVALID" in msg_upper or "USER_ID_INVALID" in msg_upper:
+                _drop_peer_cache(source_chat_id)
                 logger.warning("[GIFT] Peer invalid or inaccessible: %s", msg)
                 raise RuntimeError(
                     "PEER_INVALID: recipient is not accessible. "
                     "Use @username or make sure the account has an existing chat/contact with the recipient."
                 ) from exc
+            if "CONNECTION_LOST" in msg_upper or "TIMEOUT" in msg_upper or "NETWORK" in msg_upper:
+                last_exc = exc
+                _drop_peer_cache(source_chat_id)
+                logger.warning("[GIFT] RPC network error (attempt %s/3): %s", attempt, msg)
+                await close_gift_client()
+                await asyncio.sleep(1.5 * attempt)
+                continue
             last_exc = exc
         except (OSError, ConnectionResetError, asyncio.TimeoutError) as exc:
             last_exc = exc
+            _drop_peer_cache(source_chat_id)
             logger.warning("[GIFT] Network error (attempt %s/3): %s", attempt, exc)
             await close_gift_client()
             await asyncio.sleep(1.5 * attempt)
         except Exception as exc:
             last_exc = exc
+            _drop_peer_cache(source_chat_id)
             logger.warning("[GIFT] Unexpected error (attempt %s/3): %s", attempt, exc)
             await close_gift_client()
             await asyncio.sleep(1.5 * attempt)
 
     raise RuntimeError("TEMPORARY_NETWORK_ERROR: failed to send gift after retries") from last_exc
+
