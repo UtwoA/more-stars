@@ -2231,20 +2231,23 @@ function setUserFromTelegram(){
       }
     } else {
       const avatar=document.getElementById('user-avatar');
-      document.getElementById('user-username').textContent='@demo_user';
-      document.getElementById('user-id').textContent='123456';
+      document.getElementById('user-username').textContent='—';
+      document.getElementById('user-id').textContent='';
       const refEl=document.getElementById('ref-link');
-      const fullRef='https://t.me/more_stars_bot/app?startapp=ref_123456';
-      refEl.textContent=formatRefLink(fullRef);
-      refEl.title=fullRef;
-      refEl.href=fullRef;
+      refEl.textContent='—';
+      refEl.title='';
+      refEl.href='#';
       avatar.src='https://via.placeholder.com/80/0e0f12/ffffff?text=D'; avatar.classList.remove('skeleton');
     }
     const buildEl = document.getElementById("build-version");
     if (buildEl) buildEl.textContent = `Build: ${BUILD_VERSION}`;
   }catch(e){ console.warn('Telegram init read error',e); }
 }
-setUserFromTelegram();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", setUserFromTelegram, { once: true });
+} else {
+  setUserFromTelegram();
+}
 
 function formatRefLink(link) {
   if (!link) return "—";
