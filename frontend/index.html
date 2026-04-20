@@ -6,7 +6,7 @@
   <title>More Stars — Mini App (Dark TWA)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <link rel="preload" as="image" href="icon-1.png" />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
       .fee-label { font-size: 12px; color: var(--muted); margin-top: -2px; margin-bottom: 6px; }
     :root{
@@ -798,7 +798,7 @@
           <input type="text" id="gift-signature" class="qty" placeholder="— Your name" style="display:none;margin-top:10px;" />
         </div>
       </div>
-      <img src="selectRecipient.gif"
+      <img data-src="selectRecipient.gif" loading="lazy" decoding="async" fetchpriority="low"
            alt="Payment Animation"
            style="width:128px;margin: 0 auto 17px; display:block;opacity:0.9;" />
     </section>
@@ -848,7 +848,7 @@
               </a>
             </div>
           </div>
-          <img src="paymentLoading.gif"
+          <img data-src="paymentLoading.gif" loading="lazy" decoding="async" fetchpriority="low"
                alt="Payment Animation"
                style="width:150px;margin:60px auto 0;display:block;opacity:0.9;" />
         </div>
@@ -886,7 +886,7 @@
         </button>
       </div>
 
-      <img src="paymentSuccess.gif"
+      <img data-src="paymentSuccess.gif" loading="lazy" decoding="async" fetchpriority="low"
            alt="Success"
            style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
 
@@ -911,7 +911,7 @@
         </div>
       </div>
 
-      <img src="paymentFailure.gif"
+      <img data-src="paymentFailure.gif" loading="lazy" decoding="async" fetchpriority="low"
            alt="Payment Failed"
            style="width:200px;margin:60px auto 0;display:block;opacity:0.9;" />
     </section>
@@ -2146,11 +2146,25 @@ function renderPopular(){
 })();
 
 // Смена страницы пагинацией (панелью навигации)
+function ensureLazyImage(img) {
+  if (!img) return;
+  const src = img.getAttribute("data-src");
+  if (src && !img.getAttribute("src")) {
+    img.setAttribute("src", src);
+  }
+}
+
+function ensurePageMediaLoaded(page) {
+  if (!page) return;
+  page.querySelectorAll("img[data-src]").forEach(ensureLazyImage);
+}
+
 function switchPage(id,node){
   currentPage = id;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   const page=document.getElementById(id);
   if(page) page.classList.add('active');
+  ensurePageMediaLoaded(page);
   document.querySelectorAll('.nav-item').forEach(n=>{
     n.classList.remove('active'); n.setAttribute('aria-pressed','false');
   });
@@ -2930,11 +2944,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Контент приложения всегда показываем, а доступ к закрытым страницам управляется через auth-gate-inline
   document.getElementById("app-content").style.display = "block";
 
-  try {
-    await fetch("/api/analytics/visit", {method: "POST", headers: getAuthHeaders()});
-  } catch (e) {
+  fetch("/api/analytics/visit", {method: "POST", headers: getAuthHeaders()}).catch(() => {
     // ignore
-  }
+  });
 
   loadPublicSettings();
 
