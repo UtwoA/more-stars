@@ -1377,7 +1377,7 @@ document.getElementById("pay-cryptobot").onclick = async () => {
           openGiftPeerModal(statusData);
           return;
         }
-        if (statusData.status === "paid") {
+        if (isOrderFulfilled(statusData)) {
           clearInterval(interval);
           const title = formatOrderProduct(statusData);
           openSuccessPage({ title }, statusData.order_id);
@@ -1502,7 +1502,7 @@ async function startPlategaPayment(paymentMethod, paymentLabel) {
           openGiftPeerModal(statusData);
           return;
         }
-        if (statusData.status === "paid") {
+        if (isOrderFulfilled(statusData)) {
           clearInterval(interval);
           const title = formatOrderProduct(statusData);
           openSuccessPage({ title }, statusData.order_id);
@@ -1599,7 +1599,7 @@ document.getElementById("pay-ton").onclick = async () => {
         openGiftPeerModal(statusData);
         return;
       }
-      if (statusData.status === "paid") {
+      if (isOrderFulfilled(statusData)) {
         clearInterval(interval);
         const title = formatOrderProduct(statusData);
         openSuccessPage({ title }, statusData.order_id);
@@ -1692,7 +1692,7 @@ document.getElementById("pay-stars").onclick = async () => {
         openGiftPeerModal(statusData);
         return;
       }
-      if (statusData.status === "paid") {
+      if (isOrderFulfilled(statusData)) {
         clearInterval(interval);
         const title = formatOrderProduct(statusData);
         openSuccessPage({ title }, statusData.order_id);
@@ -2349,11 +2349,15 @@ function renderHistoryItems(orders, targetListId, targetEmptyId, compact = false
     if (order.product_type === "gift" && order.gift_status && order.gift_status !== "success") {
       giftStatus = ` • gift: ${order.gift_status}`;
     }
+    let premiumStatus = "";
+    if (order.product_type === "premium" && order.premium_status && order.premium_status !== "success") {
+      premiumStatus = ` • premium: ${order.premium_status}`;
+    }
 
     card.innerHTML = `
       <div><b>${formatOrderProduct(order)}</b> — ${order.amount_rub} ₽ (${order.currency})</div>
       <div style="font-size:12px;color:var(--muted);">Кому: ${order.recipient || "self"}</div>
-      <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}${giftStatus}</div>
+      <div style="color:${color}; font-size:12px;">${new Date(order.timestamp).toLocaleString()} — ${order.status}${giftStatus}${premiumStatus}</div>
     `;
     if (list) list.appendChild(card);
   });
@@ -2893,6 +2897,17 @@ function openFailurePage(pkg) {
   } else {
     window.location.href = `/failure.html`;
   }
+}
+
+function isOrderFulfilled(order) {
+  if (!order) return false;
+  if (order.product_type === "gift") {
+    return (order.gift_status || "").toLowerCase() === "success";
+  }
+  if (order.product_type === "premium") {
+    return (order.premium_status || "").toLowerCase() === "success";
+  }
+  return order.status === "paid";
 }
 
 function applyTranslations() {

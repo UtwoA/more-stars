@@ -35,6 +35,10 @@ def init_schema(*, engine, base) -> None:
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_in_progress BOOLEAN"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_attempts INTEGER"))
         conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gift_last_error VARCHAR"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS premium_status VARCHAR"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS premium_in_progress BOOLEAN"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS premium_attempts INTEGER"))
+        conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS premium_last_error VARCHAR"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR"))
         conn.execute(

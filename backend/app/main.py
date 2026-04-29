@@ -82,7 +82,7 @@ from .settings_store import get_report_time, get_setting, get_setting_float, get
 from .utils import now_msk
 from .robokassa_service import verify_result_signature
 from .fragment import send_purchase_to_fragment
-from .gifts import send_star_gift, close_gift_client
+from .gifts import send_star_gift, send_premium_gift, close_gift_client
 from bot import send_user_message, send_admin_message, send_user_notice, build_admin_dispatcher, get_bot
 
 
@@ -445,6 +445,13 @@ async def _sync_pending_orders() -> None:
                                         Order.gift_status == "retry",
                                     ),
                                 ),
+                                and_(
+                                    Order.product_type == "premium",
+                                    or_(
+                                        Order.premium_status.is_(None),
+                                        Order.premium_status == "retry",
+                                    ),
+                                ),
                             ),
                         ),
                     )
@@ -657,6 +664,91 @@ async def _fulfill_order_if_needed(order: Order, db) -> None:
             logger.exception("[BOT] Failed to send user message")
 
         await _send_gift_audit_if_needed(order, db)
+        _redeem_promo_if_needed(order, db)
+        return
+
+    if order.product_type == "premium":
+        if order.status != "paid":
+            return
+        if (order.premium_status or "").lower() == "success":
+            return
+
+        claim = db.execute(
+            text(
+                """
+                UPDATE orders
+                SET premium_in_progress = TRUE,
+                    premium_attempts = COALESCE(premium_attempts, 0) + 1
+                WHERE order_id = :order_id
+                  AND (premium_in_progress IS NULL OR premium_in_progress = FALSE)
+                  AND (premium_status IS NULL OR premium_status != 'success')
+                """
+            ),
+            {"order_id": order.order_id},
+        )
+        db.commit()
+        if claim.rowcount == 0:
+            return
+
+        delivery_target = order.recipient
+        if delivery_target in ("self", "me", "@unknown", None, ""):
+            if order.user_username and str(order.user_username).startswith("@"):
+                delivery_target = str(order.user_username)
+            else:
+                delivery_target = str(order.user_id)
+
+        try:
+            await send_premium_gift(
+                chat_id=delivery_target,
+                months=int(order.months or 0),
+            )
+        except Exception as exc:
+            err_text = str(exc)
+            if "PEER_INVALID" in err_text:
+                order.status = "failed"
+                order.premium_status = "failed"
+                order.premium_last_error = err_text
+                order.premium_in_progress = False
+                db.commit()
+                _release_promo_reservation(order, db)
+                await _notify_admin(
+                    f"❗ Premium delivery failed (peer invalid)\n"
+                    f"order_id={order.order_id}\n"
+                    f"user_id={order.user_id}\n"
+                    f"recipient={delivery_target}\n"
+                    f"error={order.premium_last_error}"
+                )
+                return
+
+            if _is_temporary_gift_error(err_text):
+                order.premium_status = "retry"
+                order.premium_last_error = err_text
+                order.premium_in_progress = False
+                db.commit()
+                return
+
+            order.status = "failed"
+            order.premium_status = "failed"
+            order.premium_last_error = err_text
+            order.premium_in_progress = False
+            db.commit()
+            _release_promo_reservation(order, db)
+            await _notify_admin(
+                f"❗ Premium delivery failed\n"
+                f"order_id={order.order_id}\n"
+                f"user_id={order.user_id}\n"
+                f"error={order.premium_last_error}"
+            )
+            return
+
+        order.premium_status = "success"
+        order.premium_last_error = None
+        order.premium_in_progress = False
+        db.commit()
+        try:
+            await _safe_send_user_message(order)
+        except Exception:
+            logger.exception("[BOT] Failed to send user message")
         _redeem_promo_if_needed(order, db)
         return
 
@@ -1268,9 +1360,9 @@ def _create_order(
 ) -> Order:
     order_id = str(uuid.uuid4())
     recipient = order_in.recipient
-    if order_in.product_type == "gift":
+    if order_in.product_type in ("gift", "premium"):
         if recipient in ("self", "me", "@unknown"):
-            if user_username:
+            if user_username and str(user_username).startswith("@"):
                 recipient = user_username
             elif str(order_in.user_id).isdigit():
                 recipient = str(order_in.user_id)

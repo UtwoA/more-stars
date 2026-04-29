@@ -471,6 +471,7 @@ def build_orders_router(ctx) -> APIRouter:
                 "gift_hide_name": order.gift_hide_name,
                 "gift_with_signature": order.gift_with_signature,
                 "gift_status": order.gift_status,
+                "premium_status": order.premium_status,
                 "bonus_stars_applied": order.bonus_stars_applied,
                 "amount_rub": _round_money(order.amount_rub),
                 "show_success_page": False,
@@ -479,6 +480,8 @@ def build_orders_router(ctx) -> APIRouter:
 
             if order.status == "paid" and order.success_page_shown == 0:
                 if order.product_type == "gift" and (order.gift_status or "").lower() != "success":
+                    result["show_success_page"] = False
+                elif order.product_type == "premium" and (order.premium_status or "").lower() != "success":
                     result["show_success_page"] = False
                 else:
                     result["show_success_page"] = True
@@ -523,6 +526,7 @@ def build_orders_router(ctx) -> APIRouter:
                         "gift_hide_name": o.gift_hide_name,
                         "gift_with_signature": o.gift_with_signature,
                         "gift_status": o.gift_status,
+                        "premium_status": o.premium_status,
                         "amount_rub": _round_money(o.amount_rub),
                         "currency": o.currency,
                         "status": o.status,
@@ -558,6 +562,7 @@ def build_orders_router(ctx) -> APIRouter:
                 "gift_hide_name": order.gift_hide_name,
                 "gift_with_signature": order.gift_with_signature,
                 "gift_status": order.gift_status,
+                "premium_status": order.premium_status,
                 "bonus_stars_applied": order.bonus_stars_applied,
             }
         finally:

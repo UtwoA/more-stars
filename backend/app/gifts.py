@@ -51,6 +51,15 @@ async def _resolve_peer_cached(client: Client, chat_id: Union[int, str]):
     return peer
 
 
+async def _resolve_input_user_cached(client: Client, chat_id: Union[int, str]):
+    peer = await _resolve_peer_cached(client, chat_id)
+    if isinstance(peer, raw.types.InputPeerUser):
+        return raw.types.InputUser(user_id=peer.user_id, access_hash=peer.access_hash)
+    if isinstance(peer, raw.types.InputPeerSelf):
+        return raw.types.InputUserSelf()
+    raise RuntimeError("PEER_INVALID: recipient is not a Telegram user")
+
+
 def _build_client() -> Client:
     api_id = os.getenv("PYROFORK_API_ID")
     api_hash = os.getenv("PYROFORK_API_HASH")
@@ -260,4 +269,85 @@ async def send_star_gift(
             await asyncio.sleep(1.5 * attempt)
 
     raise RuntimeError("TEMPORARY_NETWORK_ERROR: failed to send gift after retries") from last_exc
+
+
+async def send_premium_gift(
+    chat_id: Union[int, str],
+    months: int,
+    text: Optional[str] = None,
+    parse_mode: Optional["enums.ParseMode"] = None,
+    entities: Optional[List["types.MessageEntity"]] = None,
+) -> bool:
+    last_exc: Exception | None = None
+    source_chat_id: Union[int, str] = chat_id
+
+    for attempt in range(1, 4):
+        try:
+            client = await _get_client()
+
+            input_user = await _resolve_input_user_cached(client, source_chat_id)
+            text_value = text or ""
+            text_value, parsed_entities = (
+                await utils.parse_text_entities(client, text_value, parse_mode, entities)
+            ).values()
+            if parsed_entities is None:
+                parsed_entities = []
+
+            invoice = raw.types.InputInvoicePremiumGiftStars(
+                user_id=input_user,
+                months=months,
+                message=raw.types.TextWithEntities(text=text_value, entities=parsed_entities) if text_value else None,
+            )
+
+            form = await asyncio.wait_for(
+                client.invoke(
+                    raw.functions.payments.GetPaymentForm(
+                        invoice=invoice,
+                    )
+                ),
+                timeout=_RPC_TIMEOUT_SEC,
+            )
+
+            await asyncio.wait_for(
+                client.invoke(
+                    raw.functions.payments.SendStarsForm(
+                        form_id=form.form_id,
+                        invoice=invoice,
+                    )
+                ),
+                timeout=_RPC_TIMEOUT_SEC,
+            )
+            return True
+        except RPCError as exc:
+            msg = str(exc)
+            msg_upper = msg.upper()
+            if "PEER" in msg_upper or "PEER_ID_INVALID" in msg_upper or "USER_ID_INVALID" in msg_upper:
+                _drop_peer_cache(source_chat_id)
+                logger.warning("[PREMIUM] Peer invalid or inaccessible: %s", msg)
+                raise RuntimeError(
+                    "PEER_INVALID: recipient is not accessible. "
+                    "Use @username or make sure the delivery account can resolve the recipient."
+                ) from exc
+            if "CONNECTION_LOST" in msg_upper or "TIMEOUT" in msg_upper or "NETWORK" in msg_upper:
+                last_exc = exc
+                _drop_peer_cache(source_chat_id)
+                logger.warning("[PREMIUM] RPC network error (attempt %s/3): %s", attempt, msg)
+                await close_gift_client()
+                await asyncio.sleep(1.5 * attempt)
+                continue
+            last_exc = exc
+        except (OSError, ConnectionResetError, asyncio.TimeoutError) as exc:
+            last_exc = exc
+            _drop_peer_cache(source_chat_id)
+            logger.warning("[PREMIUM] Network error (attempt %s/3): %s", attempt, exc)
+            await close_gift_client()
+            await asyncio.sleep(1.5 * attempt)
+        except Exception as exc:
+            last_exc = exc
+            _drop_peer_cache(source_chat_id)
+            logger.warning("[PREMIUM] Unexpected error (attempt %s/3): %s", attempt, exc)
+            await close_gift_client()
+            await asyncio.sleep(1.5 * attempt)
+
+    raise RuntimeError("TEMPORARY_NETWORK_ERROR: failed to send premium after retries") from last_exc
 
