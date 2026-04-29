@@ -43,12 +43,24 @@ def build_orders_router(ctx) -> APIRouter:
 
     convert_rub_to_crypto = ctx.convert_rub_to_crypto
 
+    def _premium_price_rub(months: int | None) -> float:
+        price_map = {
+            3: 1029.0,
+            6: 1369.0,
+            12: 2499.0,
+        }
+        if not months or months not in price_map:
+            raise HTTPException(status_code=400, detail="Unsupported premium duration")
+        return price_map[months]
+
     @router.post("/orders/crypto")
     async def create_order_crypto(order: CryptoOrderCreate, request: Request):
         db = SessionLocal()
         try:
             if order.product_type == "stars":
                 amount_rub = _stars_base_price(order.quantity or 0)
+            elif order.product_type == "premium":
+                amount_rub = _premium_price_rub(order.months)
             elif order.product_type == "gift":
                 gift = db.query(GiftCatalog).filter(
                     GiftCatalog.gift_id == order.gift_id,
@@ -59,7 +71,7 @@ def build_orders_router(ctx) -> APIRouter:
                 amount_rub = gift.price_rub
                 order.gift_title = gift.title
             else:
-                raise HTTPException(status_code=400, detail="Only Stars and Gifts are supported right now")
+                raise HTTPException(status_code=400, detail="Only Stars, Premium and Gifts are supported right now")
             promo_percent = 0
             if order.promo_code:
                 reservation = _get_active_reservation(order.promo_code, order.user_id, db)
@@ -127,6 +139,8 @@ def build_orders_router(ctx) -> APIRouter:
         try:
             if order.product_type == "stars":
                 amount_rub = _stars_base_price(order.quantity or 0)
+            elif order.product_type == "premium":
+                amount_rub = _premium_price_rub(order.months)
             elif order.product_type == "gift":
                 gift = db.query(GiftCatalog).filter(
                     GiftCatalog.gift_id == order.gift_id,
@@ -137,7 +151,7 @@ def build_orders_router(ctx) -> APIRouter:
                 amount_rub = gift.price_rub
                 order.gift_title = gift.title
             else:
-                raise HTTPException(status_code=400, detail="Only Stars and Gifts are supported right now")
+                raise HTTPException(status_code=400, detail="Only Stars, Premium and Gifts are supported right now")
             promo_percent = 0
             if order.promo_code:
                 reservation = _get_active_reservation(order.promo_code, order.user_id, db)
@@ -220,6 +234,8 @@ def build_orders_router(ctx) -> APIRouter:
         try:
             if order.product_type == "stars":
                 amount_rub = _stars_base_price(order.quantity or 0)
+            elif order.product_type == "premium":
+                amount_rub = _premium_price_rub(order.months)
             elif order.product_type == "gift":
                 gift = db.query(GiftCatalog).filter(
                     GiftCatalog.gift_id == order.gift_id,
@@ -230,7 +246,7 @@ def build_orders_router(ctx) -> APIRouter:
                 amount_rub = gift.price_rub
                 order.gift_title = gift.title
             else:
-                raise HTTPException(status_code=400, detail="Only Stars and Gifts are supported right now")
+                raise HTTPException(status_code=400, detail="Only Stars, Premium and Gifts are supported right now")
             promo_percent = 0
             if order.promo_code:
                 reservation = _get_active_reservation(order.promo_code, order.user_id, db)
