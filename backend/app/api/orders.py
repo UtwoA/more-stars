@@ -27,6 +27,8 @@ def build_orders_router(ctx) -> APIRouter:
     _get_active_reservation = ctx._get_active_reservation
     _round_money = ctx._round_money
     _touch_user_from_initdata = ctx._touch_user_from_initdata
+    _verify_telegram_init_data = ctx._verify_telegram_init_data
+    _extract_user_id = ctx._extract_user_id
     _create_order = ctx._create_order
     _reserve_bonus_for_order = ctx._reserve_bonus_for_order
     _create_crypto_invoice = ctx._create_crypto_invoice
@@ -374,12 +376,16 @@ def build_orders_router(ctx) -> APIRouter:
                 raise HTTPException(status_code=400, detail="Only gift orders can update recipient")
             if order.status != "paid":
                 raise HTTPException(status_code=400, detail="Only paid orders can update recipient")
+            # Security: allow recipient override only for peer_invalid recovery flow.
+            # Otherwise a paid gift order can be replayed to multiple recipients.
+            if (order.gift_status or "").lower() != "peer_invalid":
+                raise HTTPException(status_code=409, detail="Recipient update is allowed only for peer_invalid gifts")
 
             recipient = recipient.strip()
             if recipient in ("self", "me"):
                 recipient = "self"
             order.recipient = recipient
-            order.gift_status = None
+            order.gift_status = "retry"
             order.gift_last_error = None
             order.gift_in_progress = False
             db.commit()
@@ -390,12 +396,26 @@ def build_orders_router(ctx) -> APIRouter:
             db.close()
 
     @router.post("/orders/stars/confirm")
-    async def confirm_stars_payment(order_id: str = Query(...), invoice_slug: str = Query(...), status: str = Query(...)):
+    async def confirm_stars_payment(
+        request: Request,
+        order_id: str = Query(...),
+        invoice_slug: str = Query(...),
+        status: str = Query(...),
+    ):
         db = SessionLocal()
         try:
+            init_data = request.headers.get("x-telegram-init-data")
+            if not init_data or not _verify_telegram_init_data(init_data):
+                raise HTTPException(status_code=401, detail="Unauthorized")
+            caller_user_id = _extract_user_id(init_data)
+            if not caller_user_id:
+                raise HTTPException(status_code=401, detail="Unauthorized")
+
             order = db.query(Order).filter(Order.order_id == order_id).first()
             if not order:
                 raise HTTPException(status_code=404, detail="Order not found")
+            if str(order.user_id) != str(caller_user_id):
+                raise HTTPException(status_code=403, detail="Forbidden")
             if order.payment_provider != "tg_stars":
                 raise HTTPException(status_code=400, detail="Not a stars invoice order")
             if invoice_slug and order.payment_invoice_id and invoice_slug != order.payment_invoice_id:

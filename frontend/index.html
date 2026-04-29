@@ -964,6 +964,7 @@ let currentPurchase = {
   price: null
 };
 let pendingGiftOrderId = null;
+let giftPeerRetryInFlight = false;
 let bonusBalance = 0;
 let bonusExpiresAt = null;
 const BUILD_VERSION = "2026-02-26-01";
@@ -1804,6 +1805,7 @@ document.addEventListener("keydown", (e) => {
 });
 if (giftPeerSubmit) {
   giftPeerSubmit.addEventListener("click", async () => {
+    if (giftPeerRetryInFlight) return;
     const input = document.getElementById("gift-peer-recipient");
     const error = document.getElementById("gift-peer-error");
     if (!input) return;
@@ -1819,6 +1821,7 @@ if (giftPeerSubmit) {
     const userId = getNumericUserId();
     if (!userId || !pendingGiftOrderId) return;
 
+    giftPeerRetryInFlight = true;
     giftPeerSubmit.disabled = true;
     if (error) {
       error.textContent = translations[currentLang]?.gift_peer_sent || "Attempting gift delivery...";
@@ -1836,13 +1839,14 @@ if (giftPeerSubmit) {
       }
       pollGiftDelivery(pendingGiftOrderId);
     } catch (e) {
+      giftPeerRetryInFlight = false;
       if (error) {
         error.textContent = translations[currentLang]?.gift_peer_invalid || "Введите @username или ID.";
         error.style.display = "block";
         error.style.color = "#ff4d4f";
       }
     } finally {
-      giftPeerSubmit.disabled = false;
+      if (!giftPeerRetryInFlight) giftPeerSubmit.disabled = false;
     }
   });
 }
@@ -2830,6 +2834,8 @@ function openGiftPeerModal(order) {
   const modal = document.getElementById("gift-peer-modal");
   if (!modal) return;
   pendingGiftOrderId = order?.order_id || null;
+  giftPeerRetryInFlight = false;
+  if (giftPeerSubmit) giftPeerSubmit.disabled = false;
   const input = document.getElementById("gift-peer-recipient");
   const error = document.getElementById("gift-peer-error");
   if (error) {
@@ -2848,6 +2854,8 @@ function closeGiftPeerModal() {
   const modal = document.getElementById("gift-peer-modal");
   if (modal) modal.classList.remove("open");
   pendingGiftOrderId = null;
+  giftPeerRetryInFlight = false;
+  if (giftPeerSubmit) giftPeerSubmit.disabled = false;
 }
 
 async function pollGiftDelivery(orderId) {

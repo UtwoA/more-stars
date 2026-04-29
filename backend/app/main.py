@@ -218,9 +218,6 @@ async def auth_and_rate_limit(request: Request, call_next):
         return await call_next(request)
     if path.startswith("/webhook/"):
         return await call_next(request)
-    if path.startswith("/orders/stars/confirm"):
-        return await call_next(request)
-
     if path.startswith("/orders/"):
         if not _rate_limiter.allow(_client_ip(request)):
             return PlainTextResponse("Too Many Requests", status_code=429)
@@ -1348,6 +1345,8 @@ def _include_orders_and_webhooks() -> None:
         _get_active_reservation=_get_active_reservation,
         _round_money=_round_money,
         _touch_user_from_initdata=_touch_user_from_initdata,
+        _verify_telegram_init_data=_verify_telegram_init_data,
+        _extract_user_id=_extract_user_id,
         _create_order=_create_order,
         _reserve_bonus_for_order=_reserve_bonus_for_order,
         _create_crypto_invoice=_create_crypto_invoice,
