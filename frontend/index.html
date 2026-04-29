@@ -748,7 +748,7 @@
       <div class="card actions" role="region" aria-label="Actions">
         <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
         <button id="buy-gifts" class="btn secondary" aria-label="Купить подарки" data-i18n="buy_gifts">Купить подарки</button>
-        <button id="buy-premium" class="btn secondary" aria-label="Купить Telegram Premium" data-i18n="telegram_premium">Telegram Premium</button>
+        <button id="buy-premium" class="btn secondary" aria-label="Купить Telegram Premium" data-i18n="telegram_premium" disabled aria-disabled="true">Telegram Premium</button>
       </div>
       <div class="card" role="region" aria-label="Популярные пакеты">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -1263,7 +1263,7 @@ if (buyGiftsBtn) {
   });
 }
 const buyPremiumBtn = document.getElementById('buy-premium');
-if (buyPremiumBtn) {
+if (buyPremiumBtn && !buyPremiumBtn.disabled) {
   buyPremiumBtn.addEventListener('click',()=>{
     switchPage('buy-premium-page');
     renderGrid('premium-grid', premiumPackagesData);
