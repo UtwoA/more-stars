@@ -89,25 +89,6 @@
       filter: grayscale(0.2);
     }
     .btn:disabled:active{ transform:none; }
-    .gifts-disabled-btn{
-      display:block;
-      padding:12px;
-      text-align:center;
-      opacity:0.7;
-      background: var(--card);
-      border:1px solid rgba(255,255,255,0.04);
-      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
-      color:var(--text);
-    }
-    .gifts-disabled-btn .title{
-      font-weight:700;
-    }
-    .gifts-disabled-btn .subtitle{
-      font-size:12px;
-      color:var(--muted);
-      margin-top:4px;
-      font-weight:400;
-    }
     .modal{
       position:fixed;inset:0;display:none;align-items:center;justify-content:center;
       background:rgba(0,0,0,0.55);backdrop-filter: blur(6px);
@@ -766,10 +747,7 @@
       </div>
       <div class="card actions" role="region" aria-label="Actions">
         <button id="buy-stars" class="btn" aria-label="Купить Stars" data-i18n="buy_stars">Купить Stars</button>
-        <button id="buy-gifts" class="btn secondary gifts-disabled-btn" aria-label="Купить подарки" disabled aria-disabled="true" title="Временно не работает">
-          <div class="title" data-i18n="buy_gifts">Купить подарки</div>
-          <div class="subtitle">Временно не работает</div>
-        </button>
+        <button id="buy-gifts" class="btn secondary" aria-label="Купить подарки" data-i18n="buy_gifts">Купить подарки</button>
         <div class="card" style="padding:12px;text-align:center;opacity:0.7;">
           <div style="font-weight:700;">Telegram Premium</div>
           <div style="font-size:12px;color:var(--muted);margin-top:4px;">Временно не работает</div>
